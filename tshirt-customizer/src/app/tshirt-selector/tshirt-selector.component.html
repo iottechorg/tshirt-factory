@@ -1,0 +1,69 @@
+<div class="container">
+    <mat-card class="custom-card">
+        <mat-card-header>
+            <mat-card-title>T-Shirt Customizer</mat-card-title>
+        </mat-card-header>
+        <mat-card-content>
+            <div class="selector-container">
+                <div class="options">
+                    <mat-form-field appearance="outline" class="form-group">
+                        <mat-label>Material</mat-label>
+                        <mat-select [(ngModel)]="tshirtOptions.material">
+                            <mat-option value="Cotton">Cotton</mat-option>
+                            <mat-option value="Polyester">Polyester</mat-option>
+                        </mat-select>
+                    </mat-form-field>
+                    <mat-form-field appearance="outline" class="form-group">
+                        <mat-label>Size</mat-label>
+                        <mat-select [(ngModel)]="tshirtOptions.size">
+                            <mat-option value="Small">Small</mat-option>
+                            <mat-option value="Medium">Medium</mat-option>
+                            <mat-option value="Large">Large</mat-option>
+                            <mat-option value="X-Large">X-Large</mat-option>
+                        </mat-select>
+                    </mat-form-field>
+                    <mat-form-field appearance="outline" class="form-group">
+                        <mat-label>Color</mat-label>
+                        <mat-select [(ngModel)]="tshirtOptions.color">
+                            <mat-option value="White">White</mat-option>
+                            <mat-option value="Black">Black</mat-option>
+                            <mat-option value="Red">Red</mat-option>
+                            <mat-option value="Blue">Blue</mat-option>
+                        </mat-select>
+                    </mat-form-field>
+                    <mat-form-field appearance="outline" class="form-group">
+                      <mat-label>Collar</mat-label>
+                        <mat-select [(ngModel)]="tshirtOptions.collar">
+                            <mat-option value="circle">Circle</mat-option>
+                            <mat-option value="v-shape">V-Shape</mat-option>
+                            <mat-option value="polo">Polo</mat-option>
+                        </mat-select>
+                    </mat-form-field>
+                    <mat-form-field appearance="outline" class="form-group">
+                        <mat-label>Extra Keywords</mat-label>
+                        <textarea matInput rows="4" [(ngModel)]="extraKeywords"></textarea>
+                    </mat-form-field>
+                </div>
+                <div class="tshirt-preview">
+                    <div class="image-container" [style.backgroundColor]="tshirtOptions.color">
+                        <img *ngIf="aiGeneratedImage" [src]="aiGeneratedImage" alt="T-shirt Preview"
+                            style="width: 300px; height: auto;" />
+                    </div>
+                   
+                    <button mat-raised-button color="primary" (click)="generateAiImage()">Generate AI Image</button>
+                     <div *ngIf="apiLimitReached" class="error-message" style="color: red; margin-top: 10px;">
+                        {{ apiLimitMessage }}
+                    </div>
+                     <div *ngIf="apiLimitMessage && !apiLimitReached" class="error-message" style="color: red; margin-top: 10px;">
+                        {{ apiLimitMessage }}
+                    </div>
+                </div>
+            </div>
+
+            <button mat-raised-button color="accent" (click)="placeOrder()">Place Order</button>
+             <button mat-raised-button color="primary" (click)="navigateToMachineObservation()">
+                Machine & Production Observation
+            </button>
+        </mat-card-content>
+    </mat-card>
+</div>

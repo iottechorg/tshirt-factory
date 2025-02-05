@@ -1,0 +1,52 @@
+volumes:
+  mosquitto_data:
+  mosquitto_log:
+services:
+  factory-simulator:
+    build:
+      context: ./simple_factory_simulator/
+      dockerfile: Dockerfile
+      args:
+        WEBAPP_PORT: ${WEBAPP_PORT}  # Pass the desired port during build
+    ports:
+      - 5001:5001
+    environment:
+        MQTT_BROKER: mqttbroker # it seems jquery cannot resolve mqtt address, replace with host ip or url address
+        MQTT_PORT: 1883
+        MQTT_WS_PORT: 9001
+        WEBAPP_PORT: 5001 # The flask app port number, if this changes, change also the port tuple above
+        MACHINE_DATA_PUBLISH_INTERVAL: 10 # in seconds
+        PRODUCTION_LOOP_INTERVAL: 5 # in seconds
+        MACHINE_DATA_REST_REQUEST_INTERVAL: 10 # in seconds
+    networks:
+      - aws-factory-network
+  mqttbroker:
+    image: eclipse-mosquitto:latest
+    ports:
+      - "31883:1883" # MQTT port, use 1883:1883 if it runs on a server
+      - "9001:9001" # MQTT over WebSockets port
+    restart: always
+    volumes:
+      - ./mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    networks:
+      - aws-factory-network
+
+  frontend:
+    build:
+      context: ./tshirt-customizer/
+      dockerfile: Dockerfile
+      args:
+        API_URL: ${API_URL} # Passing the env variable to the build args
+    ports:
+      - "8080:80" 
+    environment:
+        # Pass the env variable directly into the container
+       - API_URL=factory-simulator:5001
+    restart: always
+    networks:
+      - aws-factory-network
+networks:
+  aws-factory-network:
+    driver: bridge

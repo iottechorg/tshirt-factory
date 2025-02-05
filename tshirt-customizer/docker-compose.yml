@@ -1,0 +1,14 @@
+version: '3.8'
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        API_URL: ${API_URL} # Passing the env variable to the build args
+    ports:
+      - "4200:80" # map the container port 80 to host port 4200
+    environment:
+        # Pass the env variable directly into the container
+       - API_URL=localhost:5001
+    restart: always

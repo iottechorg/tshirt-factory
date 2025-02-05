@@ -1,0 +1,163 @@
+{
+  "test_cases": [
+    {
+      "name": "normal_production",
+      "description": "Runs a normal production scenario.",
+      "steps": [
+          {
+            "action": "production_request",
+            "product_name": "T-Shirt",
+            "details": {
+                "material": "Cotton",
+                "cut_size": "Large",
+                "stitch_type": "Straight",
+                "thread_color": "Blue",
+                "iron_temperature_setpoint": 120,
+                "steam_level": "medium",
+                "ink_type": "Water-based"
+              }
+          }
+      ]
+   },
+   {
+      "name": "high_temp_cutting",
+      "description": "Simulates high temperature during cutting.",
+        "steps": [
+           {
+             "action": "update_sensor",
+             "machine_name": "cutting",
+             "sensor_name": "blade_temperature",
+             "value": 40
+           },
+           {
+               "action": "production_request",
+               "product_name": "T-Shirt",
+               "details": {
+                   "material": "Cotton",
+                   "cut_size": "Large",
+                   "stitch_type": "Straight",
+                   "thread_color": "Blue",
+                   "iron_temperature_setpoint": 120,
+                   "steam_level": "medium",
+                   "ink_type": "Water-based"
+                }
+           }
+        ]
+     },
+     {
+        "name": "low_thread_tension_sewing",
+         "description": "Simulates low thread tension during sewing.",
+        "steps":[
+           {
+               "action": "update_sensor",
+               "machine_name": "sewing",
+               "sensor_name": "thread_tension",
+               "value": 0.1
+             },
+           {
+               "action": "production_request",
+               "product_name": "T-Shirt",
+               "details": {
+                   "material": "Cotton",
+                   "cut_size": "Large",
+                   "stitch_type": "Straight",
+                   "thread_color": "Blue",
+                   "iron_temperature_setpoint": 120,
+                   "steam_level": "medium",
+                   "ink_type": "Water-based"
+                }
+           }
+         ]
+     },
+     {
+       "name": "high_failure_rate",
+       "description": "Simulates a high failure rate during production.",
+       "steps":[
+         {
+             "action": "update_production_success_rate",
+            "success_rate": 0.5
+         },
+          {
+               "action": "production_request",
+               "product_name": "T-Shirt",
+               "details": {
+                   "material": "Cotton",
+                   "cut_size": "Large",
+                   "stitch_type": "Straight",
+                   "thread_color": "Blue",
+                   "iron_temperature_setpoint": 120,
+                   "steam_level": "medium",
+                   "ink_type": "Water-based"
+                }
+           }
+         ]
+     },
+     {
+       "name": "sensor_check",
+       "description": "Checks sensor values and production after changes.",
+       "steps": [
+          {
+            "action": "update_sensor",
+             "machine_name": "cutting",
+             "sensor_name": "blade_temperature",
+             "value": 32
+           },
+          {
+             "action": "update_sensor",
+             "machine_name": "cutting",
+             "sensor_name": "blade_pressure",
+             "value": 1.3
+           },
+           {
+             "action": "update_sensor",
+             "machine_name": "sewing",
+             "sensor_name": "needle_temperature",
+             "value": 34
+           },
+          {
+             "action": "update_sensor",
+              "machine_name": "sewing",
+              "sensor_name": "thread_tension",
+              "value": 0.8
+           },
+          {
+             "action": "update_sensor",
+             "machine_name": "ironing",
+              "sensor_name": "plate_temperature",
+              "value": 130
+           },
+           {
+             "action": "update_sensor",
+             "machine_name": "ironing",
+             "sensor_name": "steam_pressure",
+             "value": 0.7
+           },
+          {
+             "action": "update_sensor",
+             "machine_name": "printing",
+              "sensor_name": "ink_temperature",
+              "value": 25
+           },
+          {
+            "action": "update_sensor",
+             "machine_name": "printing",
+             "sensor_name": "nozzle_pressure",
+             "value": 1
+           },
+           {
+               "action": "production_request",
+                "product_name": "T-Shirt",
+               "details": {
+                   "material": "Cotton",
+                   "cut_size": "Large",
+                   "stitch_type": "Straight",
+                   "thread_color": "Blue",
+                   "iron_temperature_setpoint": 120,
+                   "steam_level": "medium",
+                   "ink_type": "Water-based"
+                }
+           }
+       ]
+    }
+  ]
+}

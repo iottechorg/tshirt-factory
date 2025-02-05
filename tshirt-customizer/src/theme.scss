@@ -1,0 +1,31 @@
+@use '@angular/material' as mat;
+
+// Define your primary, accent, and warn colors
+$tshirt-customizer-primary: mat.define-palette(mat.$blue-grey-palette, 500);
+$tshirt-customizer-accent: mat.define-palette(mat.$teal-palette, A200, A100, A400);
+$tshirt-customizer-warn: mat.define-palette(mat.$red-palette);
+
+
+// Create the theme with dark background
+$tshirt-customizer-theme: mat.define-dark-theme((
+  color: (
+    primary: $tshirt-customizer-primary,
+    accent: $tshirt-customizer-accent,
+    warn: $tshirt-customizer-warn
+  )
+));
+
+
+// Apply the theme to the whole app
+@include mat.all-component-themes($tshirt-customizer-theme);
+
+
+// Apply custom background colors (to non angular material components)
+body {
+  background-color: #212121;
+  color: white;
+}
+
+.mat-card.custom-card {
+  background-color: #373737;
+}

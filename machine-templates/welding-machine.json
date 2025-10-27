@@ -1,0 +1,313 @@
+{
+  "machine_type": "welding",
+  "machine_name": "Robotic Welding Machine",
+  "description": "Automated welding robot for metal fabrication",
+  "category": "fabrication",
+
+  "sensors": [
+    {
+      "name": "arc_voltage",
+      "type": "float",
+      "unit": "volts",
+      "range": {
+        "min": 18.0,
+        "max": 32.0
+      },
+      "initial_value": "random",
+      "update_behavior": {
+        "type": "random_walk",
+        "parameters": {
+          "variation": 0.3,
+          "bounds_check": true
+        }
+      },
+      "anomaly_detection": {
+        "warning_min": 20.0,
+        "warning_max": 30.0,
+        "critical_min": 18.0,
+        "critical_max": 32.0
+      }
+    },
+    {
+      "name": "wire_feed_speed",
+      "type": "float",
+      "unit": "meters_per_minute",
+      "range": {
+        "min": 2.0,
+        "max": 12.0
+      },
+      "initial_value": 7.0,
+      "update_behavior": {
+        "type": "random_walk",
+        "parameters": {
+          "variation": 0.2,
+          "bounds_check": true
+        }
+      }
+    },
+    {
+      "name": "gas_flow_rate",
+      "type": "float",
+      "unit": "liters_per_minute",
+      "range": {
+        "min": 10.0,
+        "max": 25.0
+      },
+      "initial_value": 15.0,
+      "update_behavior": {
+        "type": "random_walk",
+        "parameters": {
+          "variation": 0.5,
+          "bounds_check": true
+        }
+      }
+    },
+    {
+      "name": "temperature",
+      "type": "float",
+      "unit": "celsius",
+      "range": {
+        "min": 20.0,
+        "max": 200.0
+      },
+      "initial_value": 25.0,
+      "update_behavior": {
+        "type": "sine_wave",
+        "parameters": {
+          "amplitude": 15.0,
+          "frequency": 0.05,
+          "offset": 50.0
+        }
+      }
+    },
+    {
+      "name": "arm_position_x",
+      "type": "float",
+      "unit": "millimeters",
+      "range": {
+        "min": 0.0,
+        "max": 2000.0
+      },
+      "initial_value": 1000.0,
+      "update_behavior": {
+        "type": "step",
+        "parameters": {
+          "step_size": 50.0,
+          "probability": 0.1
+        }
+      }
+    },
+    {
+      "name": "arm_position_y",
+      "type": "float",
+      "unit": "millimeters",
+      "range": {
+        "min": 0.0,
+        "max": 1500.0
+      },
+      "initial_value": 750.0,
+      "update_behavior": {
+        "type": "step",
+        "parameters": {
+          "step_size": 50.0,
+          "probability": 0.1
+        }
+      }
+    },
+    {
+      "name": "torch_active",
+      "type": "boolean",
+      "unit": "boolean",
+      "range": {
+        "values": [true, false]
+      },
+      "initial_value": false,
+      "update_behavior": {
+        "type": "conditional",
+        "parameters": {
+          "condition": "operation_running"
+        }
+      }
+    }
+  ],
+
+  "operations": [
+    {
+      "name": "spot_weld",
+      "display_name": "Spot Welding",
+      "description": "Single point weld",
+      "duration": {
+        "type": "fixed",
+        "value": 3.0
+      },
+      "inputs": [
+        {
+          "name": "metal_parts",
+          "type": "material",
+          "required": true
+        },
+        {
+          "name": "weld_pattern",
+          "type": "parameter",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "welded_part",
+          "type": "product"
+        }
+      ],
+      "failure_modes": [
+        {
+          "name": "arc_instability",
+          "probability": 0.02,
+          "conditions": {
+            "arc_voltage": {"min": 18, "max": 20}
+          },
+          "recovery_time": 30
+        },
+        {
+          "name": "gas_shortage",
+          "probability": 0.01,
+          "conditions": {
+            "gas_flow_rate": {"min": 10, "max": 12}
+          },
+          "recovery_time": 60
+        }
+      ],
+      "sensor_impacts": [
+        {
+          "sensor_name": "temperature",
+          "impact": {
+            "change": 20.0,
+            "duration": 10.0
+          }
+        },
+        {
+          "sensor_name": "torch_active",
+          "impact": {
+            "change": true,
+            "duration": 3.0
+          }
+        }
+      ]
+    },
+    {
+      "name": "seam_weld",
+      "display_name": "Seam Welding",
+      "description": "Continuous seam weld",
+      "duration": {
+        "type": "formula",
+        "formula": "seam_length / wire_feed_speed * 60"
+      },
+      "inputs": [
+        {
+          "name": "metal_parts",
+          "type": "material",
+          "required": true
+        },
+        {
+          "name": "seam_length",
+          "type": "parameter",
+          "required": true
+        },
+        {
+          "name": "seam_pattern",
+          "type": "parameter",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "welded_assembly",
+          "type": "product"
+        }
+      ],
+      "failure_modes": [
+        {
+          "name": "wire_jam",
+          "probability": 0.03,
+          "recovery_time": 120
+        }
+      ],
+      "sensor_impacts": [
+        {
+          "sensor_name": "temperature",
+          "impact": {
+            "change": 40.0,
+            "duration": 30.0
+          }
+        }
+      ]
+    }
+  ],
+
+  "telemetry_config": {
+    "publish_interval": 5.0,
+    "sensor_update_interval": 1.0,
+    "metrics": [
+      {
+        "name": "weld_quality_index",
+        "formula": "(arc_voltage - 20) / 10 * 100",
+        "unit": "percent"
+      },
+      {
+        "name": "energy_consumption",
+        "formula": "arc_voltage * wire_feed_speed * 0.1",
+        "unit": "kwh"
+      }
+    ],
+    "aggregations": [
+      {
+        "metric": "temperature",
+        "window": 60,
+        "function": "avg"
+      },
+      {
+        "metric": "arc_voltage",
+        "window": 300,
+        "function": "stddev"
+      }
+    ]
+  },
+
+  "maintenance": {
+    "schedule": {
+      "interval_hours": 200,
+      "duration_minutes": 30
+    },
+    "degradation": {
+      "enabled": true,
+      "rate": 0.001,
+      "affects": ["wire_feed_speed", "gas_flow_rate"]
+    }
+  },
+
+  "dependencies": [
+    {
+      "name": "welding_wire",
+      "type": "consumable",
+      "consumption_rate": "wire_feed_speed * operation_time / 1000"
+    },
+    {
+      "name": "shielding_gas",
+      "type": "consumable",
+      "consumption_rate": "gas_flow_rate * operation_time / 1000"
+    },
+    {
+      "name": "electricity",
+      "type": "utility",
+      "consumption_rate": "arc_voltage * 0.05"
+    }
+  ],
+
+  "metadata": {
+    "manufacturer": "RoboWeld Inc",
+    "model": "RW-3000",
+    "year": 2023,
+    "cost_per_hour": 45.0,
+    "energy_consumption_kw": 15.0,
+    "tags": ["automotive", "metal", "automated"]
+  }
+}

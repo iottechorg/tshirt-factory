@@ -1,0 +1,381 @@
+{
+  "factory_id": "pharma-plant-001",
+  "factory_name": "Pharmaceutical Tablet Manufacturing Plant",
+  "factory_type": "pharmaceutical",
+  "description": "GMP-compliant pharmaceutical tablet production facility",
+
+  "machines": [
+    {
+      "machine_id": "blender-01",
+      "machine_type": "blending",
+      "template_file": "machine-templates/pharmaceutical-blender.json",
+      "instance_name": "V-Blender #1",
+      "location": {"zone": "formulation", "line": "blending", "position": "B1"},
+      "enabled": true
+    },
+    {
+      "machine_id": "granulator-01",
+      "machine_type": "granulation",
+      "template_file": "machine-templates/wet-granulator.json",
+      "instance_name": "Wet Granulator #1",
+      "location": {"zone": "formulation", "line": "granulation", "position": "G1"},
+      "enabled": true
+    },
+    {
+      "machine_id": "dryer-01",
+      "machine_type": "drying",
+      "template_file": "machine-templates/fluid-bed-dryer.json",
+      "instance_name": "Fluid Bed Dryer #1",
+      "location": {"zone": "formulation", "line": "drying", "position": "D1"},
+      "enabled": true
+    },
+    {
+      "machine_id": "tabletpress-01",
+      "machine_type": "tabletpress",
+      "template_file": "machine-templates/tablet-press.json",
+      "instance_name": "Rotary Tablet Press #1",
+      "location": {"zone": "compression", "line": "pressing", "position": "P1"},
+      "enabled": true
+    },
+    {
+      "machine_id": "coater-01",
+      "machine_type": "coating",
+      "template_file": "machine-templates/film-coater.json",
+      "instance_name": "Film Coater #1",
+      "location": {"zone": "coating", "line": "coating", "position": "C1"},
+      "enabled": true
+    },
+    {
+      "machine_id": "inspection-01",
+      "machine_type": "inspection",
+      "template_file": "machine-templates/tablet-inspector.json",
+      "instance_name": "Vision Inspection #1",
+      "location": {"zone": "quality", "line": "inspection", "position": "I1"},
+      "enabled": true
+    },
+    {
+      "machine_id": "packaging-01",
+      "machine_type": "packaging",
+      "template_file": "machine-templates/blister-packager.json",
+      "instance_name": "Blister Packager #1",
+      "location": {"zone": "packaging", "line": "primary", "position": "PK1"},
+      "enabled": true
+    }
+  ],
+
+  "workflows": [
+    {
+      "workflow_id": "standard-tablet",
+      "workflow_name": "Standard Coated Tablet Production",
+      "product_type": "standard_tablet",
+      "description": "Complete tablet manufacturing with film coating",
+      "steps": [
+        {
+          "step_id": "step-1",
+          "step_name": "Blend active ingredients",
+          "machine_type": "blending",
+          "operation": "blend_powders",
+          "parameters": {
+            "batch_size_kg": 100,
+            "blend_time_minutes": 15,
+            "rotation_speed_rpm": 15
+          },
+          "required_inputs": ["api_powder", "excipients"],
+          "outputs": ["blended_powder"],
+          "timeout_seconds": 1200
+        },
+        {
+          "step_id": "step-2",
+          "step_name": "Wet granulation",
+          "machine_type": "granulation",
+          "operation": "wet_granulate",
+          "parameters": {
+            "binder_solution": "pvp_solution",
+            "spray_rate": 50
+          },
+          "required_inputs": ["blended_powder", "binder_solution"],
+          "outputs": ["wet_granules"],
+          "timeout_seconds": 1800
+        },
+        {
+          "step_id": "step-3",
+          "step_name": "Dry granules",
+          "machine_type": "drying",
+          "operation": "fluid_bed_dry",
+          "parameters": {
+            "inlet_temperature": 60,
+            "target_moisture": 2.0
+          },
+          "required_inputs": ["wet_granules"],
+          "outputs": ["dried_granules"],
+          "timeout_seconds": 2400
+        },
+        {
+          "step_id": "step-4",
+          "step_name": "Compress tablets",
+          "machine_type": "tabletpress",
+          "operation": "compress_tablets",
+          "parameters": {
+            "batch_size": 50000,
+            "target_weight": 500,
+            "target_hardness": 120
+          },
+          "required_inputs": ["dried_granules"],
+          "outputs": ["compressed_tablets"],
+          "timeout_seconds": 3600
+        },
+        {
+          "step_id": "step-5",
+          "step_name": "Quality check uncoated",
+          "machine_type": "tabletpress",
+          "operation": "quality_check",
+          "parameters": {
+            "sample_size": 100
+          },
+          "required_inputs": ["compressed_tablets"],
+          "outputs": ["qa_approved_tablets"],
+          "timeout_seconds": 300,
+          "conditions": [
+            {
+              "type": "quality",
+              "expression": "weight_variation_rsd <= 5.0"
+            }
+          ]
+        },
+        {
+          "step_id": "step-6",
+          "step_name": "Apply film coating",
+          "machine_type": "coating",
+          "operation": "film_coat",
+          "parameters": {
+            "coating_solution": "opadry_blue",
+            "weight_gain_percent": 3.0
+          },
+          "required_inputs": ["qa_approved_tablets"],
+          "outputs": ["coated_tablets"],
+          "timeout_seconds": 3600
+        },
+        {
+          "step_id": "step-7",
+          "step_name": "Final inspection",
+          "machine_type": "inspection",
+          "operation": "vision_inspect",
+          "parameters": {
+            "inspection_type": "comprehensive",
+            "reject_on_defects": true
+          },
+          "required_inputs": ["coated_tablets"],
+          "outputs": ["inspected_tablets"],
+          "timeout_seconds": 600
+        },
+        {
+          "step_id": "step-8",
+          "step_name": "Blister packaging",
+          "machine_type": "packaging",
+          "operation": "blister_pack",
+          "parameters": {
+            "tablets_per_blister": 10,
+            "include_desiccant": true
+          },
+          "required_inputs": ["inspected_tablets"],
+          "outputs": ["packaged_tablets"],
+          "timeout_seconds": 1200
+        }
+      ],
+      "metadata": {
+        "estimated_time_minutes": 300,
+        "complexity": "high",
+        "quality_tier": "pharmaceutical_grade",
+        "cost_estimate": 5000,
+        "batch_number_required": true,
+        "gmp_critical": true
+      }
+    },
+    {
+      "workflow_id": "immediate-release-tablet",
+      "workflow_name": "Immediate Release Tablet (Direct Compression)",
+      "product_type": "ir_tablet",
+      "description": "Fast production using direct compression",
+      "steps": [
+        {
+          "step_id": "step-1",
+          "step_name": "Blend ingredients",
+          "machine_type": "blending",
+          "operation": "blend_powders",
+          "parameters": {
+            "batch_size_kg": 50,
+            "blend_time_minutes": 10
+          },
+          "required_inputs": ["api_powder", "fillers", "lubricant"],
+          "outputs": ["blend_for_compression"],
+          "timeout_seconds": 900
+        },
+        {
+          "step_id": "step-2",
+          "step_name": "Direct compression",
+          "machine_type": "tabletpress",
+          "operation": "compress_tablets",
+          "parameters": {
+            "batch_size": 25000,
+            "target_weight": 300
+          },
+          "required_inputs": ["blend_for_compression"],
+          "outputs": ["ir_tablets"],
+          "timeout_seconds": 2400
+        },
+        {
+          "step_id": "step-3",
+          "step_name": "In-process testing",
+          "machine_type": "tabletpress",
+          "operation": "quality_check",
+          "required_inputs": ["ir_tablets"],
+          "outputs": ["tested_tablets"],
+          "timeout_seconds": 180
+        },
+        {
+          "step_id": "step-4",
+          "step_name": "Visual inspection",
+          "machine_type": "inspection",
+          "operation": "vision_inspect",
+          "required_inputs": ["tested_tablets"],
+          "outputs": ["final_tablets"],
+          "timeout_seconds": 300
+        },
+        {
+          "step_id": "step-5",
+          "step_name": "Package tablets",
+          "machine_type": "packaging",
+          "operation": "blister_pack",
+          "parameters": {
+            "tablets_per_blister": 20
+          },
+          "required_inputs": ["final_tablets"],
+          "outputs": ["packaged_ir_tablets"],
+          "timeout_seconds": 900
+        }
+      ],
+      "metadata": {
+        "estimated_time_minutes": 90,
+        "complexity": "medium",
+        "quality_tier": "pharmaceutical_grade",
+        "cost_estimate": 2000,
+        "gmp_critical": true
+      }
+    }
+  ],
+
+  "production_config": {
+    "mode": "batch",
+    "target_rate": {
+      "value": 8,
+      "unit": "batches_per_day"
+    },
+    "shift_schedule": {
+      "shifts_per_day": 3,
+      "hours_per_shift": 8,
+      "days_per_week": 6
+    },
+    "quality_control": {
+      "enabled": true,
+      "inspection_rate": 1.0,
+      "rejection_threshold": 0.999
+    },
+    "inventory": {
+      "enabled": true,
+      "materials": [
+        {
+          "name": "api_powder",
+          "initial_quantity": 500,
+          "reorder_point": 100,
+          "reorder_quantity": 400,
+          "unit": "kg"
+        },
+        {
+          "name": "excipients",
+          "initial_quantity": 2000,
+          "reorder_point": 400,
+          "reorder_quantity": 1600,
+          "unit": "kg"
+        },
+        {
+          "name": "coating_solution",
+          "initial_quantity": 200,
+          "reorder_point": 40,
+          "reorder_quantity": 160,
+          "unit": "liters"
+        },
+        {
+          "name": "blister_packaging",
+          "initial_quantity": 100000,
+          "reorder_point": 20000,
+          "reorder_quantity": 80000,
+          "unit": "units"
+        }
+      ]
+    },
+    "performance_tracking": {
+      "track_oee": true,
+      "track_cycle_time": true,
+      "track_downtime": true,
+      "kpis": [
+        {
+          "name": "batch_yield",
+          "formula": "good_tablets / expected_tablets * 100",
+          "unit": "percent",
+          "target": 98.0
+        },
+        {
+          "name": "weight_uniformity_rsd",
+          "formula": "stddev(tablet_weights) / avg(tablet_weights) * 100",
+          "unit": "percent",
+          "target": 3.0
+        },
+        {
+          "name": "content_uniformity",
+          "formula": "100 - abs(measured_content - 100)",
+          "unit": "percent",
+          "target": 99.0
+        },
+        {
+          "name": "batches_per_week",
+          "formula": "completed_batches / weeks_elapsed",
+          "unit": "batches_per_week",
+          "target": 48
+        }
+      ]
+    },
+    "simulation": {
+      "time_scale": 20.0,
+      "randomness": 0.05,
+      "enable_anomalies": true,
+      "anomaly_frequency": 0.1
+    }
+  },
+
+  "mqtt_config": {
+    "broker": "mqttbroker",
+    "port": 1883,
+    "site_id": "pharma-plant-001",
+    "topic_prefix": "factory",
+    "qos": 2
+  },
+
+  "database_config": {
+    "enabled": true,
+    "type": "postgresql",
+    "connection": {
+      "host": "postgres",
+      "port": 5432,
+      "database": "pharma_factory",
+      "user": "factory_user",
+      "password": "factory_pass"
+    }
+  },
+
+  "metadata": {
+    "version": "1.0.0",
+    "created_date": "2025-10-27T00:00:00Z",
+    "author": "Factory Configuration Team",
+    "tags": ["pharmaceutical", "gmp", "tablets", "batch_production", "regulated"]
+  }
+}

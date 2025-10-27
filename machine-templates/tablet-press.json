@@ -1,0 +1,216 @@
+{
+  "machine_type": "tabletpress",
+  "machine_name": "Rotary Tablet Press",
+  "description": "High-speed pharmaceutical tablet compression machine",
+  "category": "pharmaceutical",
+
+  "sensors": [
+    {
+      "name": "compression_force",
+      "type": "float",
+      "unit": "kilonewtons",
+      "range": {"min": 5.0, "max": 50.0},
+      "initial_value": 25.0,
+      "update_behavior": {
+        "type": "random_walk",
+        "parameters": {"variation": 1.0, "bounds_check": true}
+      },
+      "anomaly_detection": {
+        "warning_min": 10.0,
+        "warning_max": 45.0,
+        "critical_min": 5.0,
+        "critical_max": 50.0
+      }
+    },
+    {
+      "name": "turret_speed",
+      "type": "float",
+      "unit": "rpm",
+      "range": {"min": 10.0, "max": 100.0},
+      "initial_value": 60.0,
+      "update_behavior": {
+        "type": "random_walk",
+        "parameters": {"variation": 2.0, "bounds_check": true}
+      }
+    },
+    {
+      "name": "feeder_level",
+      "type": "float",
+      "unit": "percent",
+      "range": {"min": 0.0, "max": 100.0},
+      "initial_value": 80.0,
+      "update_behavior": {
+        "type": "random_walk",
+        "parameters": {"variation": 5.0, "bounds_check": true}
+      },
+      "anomaly_detection": {
+        "warning_min": 20.0,
+        "critical_min": 10.0
+      }
+    },
+    {
+      "name": "tablet_weight",
+      "type": "float",
+      "unit": "milligrams",
+      "range": {"min": 100.0, "max": 1000.0},
+      "initial_value": 500.0,
+      "update_behavior": {
+        "type": "random_walk",
+        "parameters": {"variation": 2.0, "bounds_check": true}
+      },
+      "anomaly_detection": {
+        "warning_min": 490.0,
+        "warning_max": 510.0,
+        "critical_min": 480.0,
+        "critical_max": 520.0
+      }
+    },
+    {
+      "name": "tablet_hardness",
+      "type": "float",
+      "unit": "newtons",
+      "range": {"min": 50.0, "max": 200.0},
+      "initial_value": 120.0,
+      "update_behavior": {
+        "type": "random_walk",
+        "parameters": {"variation": 3.0, "bounds_check": true}
+      }
+    },
+    {
+      "name": "dust_level",
+      "type": "float",
+      "unit": "mg_per_m3",
+      "range": {"min": 0.0, "max": 10.0},
+      "initial_value": 2.0,
+      "update_behavior": {
+        "type": "sine_wave",
+        "parameters": {"amplitude": 1.0, "frequency": 0.1, "offset": 3.0}
+      },
+      "anomaly_detection": {
+        "warning_max": 8.0,
+        "critical_max": 9.5
+      }
+    }
+  ],
+
+  "operations": [
+    {
+      "name": "compress_tablets",
+      "display_name": "Compress Tablets",
+      "description": "Compress powder into tablets",
+      "duration": {
+        "type": "formula",
+        "formula": "batch_size / (turret_speed * 60) * 1000"
+      },
+      "inputs": [
+        {"name": "powder_blend", "type": "material", "required": true},
+        {"name": "batch_size", "type": "parameter", "required": true}
+      ],
+      "outputs": [{"name": "compressed_tablets", "type": "product"}],
+      "failure_modes": [
+        {
+          "name": "weight_variation",
+          "probability": 0.03,
+          "conditions": {
+            "tablet_weight": {"min": 480, "max": 490}
+          },
+          "recovery_time": 60
+        },
+        {
+          "name": "capping",
+          "probability": 0.02,
+          "conditions": {
+            "compression_force": {"max": 15}
+          },
+          "recovery_time": 120
+        },
+        {
+          "name": "feeder_jam",
+          "probability": 0.01,
+          "conditions": {
+            "feeder_level": {"max": 15}
+          },
+          "recovery_time": 180
+        }
+      ],
+      "sensor_impacts": [
+        {
+          "sensor_name": "feeder_level",
+          "impact": {"change": -0.5, "duration": 1}
+        },
+        {
+          "sensor_name": "dust_level",
+          "impact": {"change": 0.5, "duration": 5}
+        }
+      ]
+    },
+    {
+      "name": "quality_check",
+      "display_name": "Tablet Quality Check",
+      "description": "Check tablet weight, hardness, and integrity",
+      "duration": {"type": "fixed", "value": 30.0},
+      "inputs": [
+        {"name": "compressed_tablets", "type": "material", "required": true}
+      ],
+      "outputs": [{"name": "quality_approved_tablets", "type": "product"}]
+    }
+  ],
+
+  "telemetry_config": {
+    "publish_interval": 5.0,
+    "sensor_update_interval": 1.0,
+    "metrics": [
+      {
+        "name": "production_rate",
+        "formula": "turret_speed * 60",
+        "unit": "tablets_per_hour"
+      },
+      {
+        "name": "weight_variation_rsd",
+        "formula": "abs(tablet_weight - 500) / 500 * 100",
+        "unit": "percent"
+      },
+      {
+        "name": "process_capability",
+        "formula": "(510 - 490) / (6 * 2)",
+        "unit": "cpk"
+      }
+    ],
+    "aggregations": [
+      {
+        "metric": "tablet_weight",
+        "window": 300,
+        "function": "stddev"
+      },
+      {
+        "metric": "compression_force",
+        "window": 600,
+        "function": "avg"
+      }
+    ]
+  },
+
+  "maintenance": {
+    "schedule": {"interval_hours": 100, "duration_minutes": 60},
+    "degradation": {
+      "enabled": true,
+      "rate": 0.001,
+      "affects": ["tablet_weight", "compression_force"]
+    }
+  },
+
+  "dependencies": [
+    {"name": "powder_blend", "type": "material", "consumption_rate": "batch_size"},
+    {"name": "compressed_air", "type": "utility", "consumption_rate": "5.0"},
+    {"name": "electricity", "type": "utility", "consumption_rate": "15.0"}
+  ],
+
+  "metadata": {
+    "manufacturer": "PharmaPress Systems",
+    "model": "TP-3600",
+    "year": 2023,
+    "cost_per_hour": 200.0,
+    "energy_consumption_kw": 15.0,
+    "tags": ["pharmaceutical", "tablet", "gmp_compliant", "high_speed"]
+  }
+}

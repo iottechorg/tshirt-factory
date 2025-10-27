@@ -1,0 +1,390 @@
+{
+  "factory_id": "automotive-plant-001",
+  "factory_name": "Automotive Assembly Plant",
+  "factory_type": "automotive",
+  "description": "Complete automotive assembly line for vehicle manufacturing",
+
+  "machines": [
+    {
+      "machine_id": "stamping-01",
+      "machine_type": "stamping",
+      "template_file": "machine-templates/stamping-machine.json",
+      "instance_name": "Body Panel Stamping Press #1",
+      "location": {
+        "zone": "body_shop",
+        "line": "stamping",
+        "position": "S1"
+      },
+      "enabled": true
+    },
+    {
+      "machine_id": "welding-01",
+      "machine_type": "welding",
+      "template_file": "machine-templates/welding-machine.json",
+      "instance_name": "Robotic Welder #1",
+      "location": {
+        "zone": "body_shop",
+        "line": "welding",
+        "position": "W1"
+      },
+      "overrides": {
+        "telemetry_config": {
+          "publish_interval": 3.0
+        },
+        "failure_rate": 0.02
+      },
+      "enabled": true
+    },
+    {
+      "machine_id": "welding-02",
+      "machine_type": "welding",
+      "template_file": "machine-templates/welding-machine.json",
+      "instance_name": "Robotic Welder #2",
+      "location": {
+        "zone": "body_shop",
+        "line": "welding",
+        "position": "W2"
+      },
+      "enabled": true
+    },
+    {
+      "machine_id": "painting-01",
+      "machine_type": "painting",
+      "template_file": "machine-templates/painting-machine.json",
+      "instance_name": "Automated Paint Booth #1",
+      "location": {
+        "zone": "paint_shop",
+        "line": "painting",
+        "position": "P1"
+      },
+      "enabled": true
+    },
+    {
+      "machine_id": "assembly-01",
+      "machine_type": "assembly",
+      "template_file": "machine-templates/assembly-machine.json",
+      "instance_name": "Main Assembly Line #1",
+      "location": {
+        "zone": "final_assembly",
+        "line": "main",
+        "position": "A1"
+      },
+      "enabled": true
+    },
+    {
+      "machine_id": "inspection-01",
+      "machine_type": "inspection",
+      "template_file": "machine-templates/inspection-machine.json",
+      "instance_name": "Quality Inspection Station #1",
+      "location": {
+        "zone": "quality_control",
+        "line": "inspection",
+        "position": "I1"
+      },
+      "enabled": true
+    }
+  ],
+
+  "workflows": [
+    {
+      "workflow_id": "sedan-production",
+      "workflow_name": "Sedan Production Line",
+      "product_type": "sedan",
+      "description": "Complete production workflow for sedan vehicles",
+      "steps": [
+        {
+          "step_id": "step-1",
+          "step_name": "Stamp body panels",
+          "machine_type": "stamping",
+          "operation": "stamp_panel",
+          "parameters": {
+            "panel_type": "body",
+            "material": "steel",
+            "thickness": 0.8
+          },
+          "required_inputs": ["steel_sheet"],
+          "outputs": ["body_panels"],
+          "timeout_seconds": 120,
+          "retry_count": 1
+        },
+        {
+          "step_id": "step-2a",
+          "step_name": "Weld body structure (Front)",
+          "machine_type": "welding",
+          "machine_id": "welding-01",
+          "operation": "seam_weld",
+          "parameters": {
+            "seam_length": 5.0,
+            "seam_pattern": "continuous"
+          },
+          "required_inputs": ["body_panels"],
+          "outputs": ["welded_front"],
+          "parallel_group": 1,
+          "timeout_seconds": 180
+        },
+        {
+          "step_id": "step-2b",
+          "step_name": "Weld body structure (Rear)",
+          "machine_type": "welding",
+          "machine_id": "welding-02",
+          "operation": "seam_weld",
+          "parameters": {
+            "seam_length": 4.5,
+            "seam_pattern": "continuous"
+          },
+          "required_inputs": ["body_panels"],
+          "outputs": ["welded_rear"],
+          "parallel_group": 1,
+          "timeout_seconds": 180
+        },
+        {
+          "step_id": "step-3",
+          "step_name": "Join body sections",
+          "machine_type": "welding",
+          "operation": "spot_weld",
+          "parameters": {
+            "weld_pattern": "structural"
+          },
+          "required_inputs": ["welded_front", "welded_rear"],
+          "outputs": ["complete_body"],
+          "timeout_seconds": 240
+        },
+        {
+          "step_id": "step-4",
+          "step_name": "Paint body",
+          "machine_type": "painting",
+          "operation": "spray_paint",
+          "parameters": {
+            "color": "blue",
+            "layers": 3,
+            "type": "automotive_grade"
+          },
+          "required_inputs": ["complete_body"],
+          "outputs": ["painted_body"],
+          "timeout_seconds": 300
+        },
+        {
+          "step_id": "step-5",
+          "step_name": "Final assembly",
+          "machine_type": "assembly",
+          "operation": "install_components",
+          "parameters": {
+            "components": ["engine", "transmission", "interior", "wheels"]
+          },
+          "required_inputs": ["painted_body"],
+          "outputs": ["assembled_vehicle"],
+          "timeout_seconds": 600
+        },
+        {
+          "step_id": "step-6",
+          "step_name": "Quality inspection",
+          "machine_type": "inspection",
+          "operation": "full_inspection",
+          "parameters": {
+            "inspection_level": "comprehensive"
+          },
+          "required_inputs": ["assembled_vehicle"],
+          "outputs": ["inspected_vehicle"],
+          "timeout_seconds": 300,
+          "conditions": [
+            {
+              "type": "quality",
+              "expression": "quality_score >= 0.95"
+            }
+          ]
+        }
+      ],
+      "metadata": {
+        "estimated_time_minutes": 240,
+        "complexity": "high",
+        "quality_tier": "automotive_grade",
+        "cost_estimate": 25000
+      }
+    },
+    {
+      "workflow_id": "suv-production",
+      "workflow_name": "SUV Production Line",
+      "product_type": "suv",
+      "description": "Production workflow for SUV vehicles",
+      "steps": [
+        {
+          "step_id": "step-1",
+          "step_name": "Stamp large body panels",
+          "machine_type": "stamping",
+          "operation": "stamp_panel",
+          "parameters": {
+            "panel_type": "body",
+            "material": "aluminum",
+            "thickness": 1.0
+          },
+          "required_inputs": ["aluminum_sheet"],
+          "outputs": ["suv_body_panels"],
+          "timeout_seconds": 150
+        },
+        {
+          "step_id": "step-2",
+          "step_name": "Weld SUV body",
+          "machine_type": "welding",
+          "operation": "seam_weld",
+          "parameters": {
+            "seam_length": 8.0,
+            "seam_pattern": "reinforced"
+          },
+          "required_inputs": ["suv_body_panels"],
+          "outputs": ["welded_suv_body"],
+          "timeout_seconds": 300
+        },
+        {
+          "step_id": "step-3",
+          "step_name": "Paint SUV body",
+          "machine_type": "painting",
+          "operation": "spray_paint",
+          "parameters": {
+            "color": "black",
+            "layers": 4,
+            "type": "premium"
+          },
+          "required_inputs": ["welded_suv_body"],
+          "outputs": ["painted_suv_body"],
+          "timeout_seconds": 360
+        },
+        {
+          "step_id": "step-4",
+          "step_name": "SUV final assembly",
+          "machine_type": "assembly",
+          "operation": "install_components",
+          "parameters": {
+            "components": ["engine", "4wd_transmission", "premium_interior", "alloy_wheels"]
+          },
+          "required_inputs": ["painted_suv_body"],
+          "outputs": ["assembled_suv"],
+          "timeout_seconds": 720
+        },
+        {
+          "step_id": "step-5",
+          "step_name": "Final inspection",
+          "machine_type": "inspection",
+          "operation": "full_inspection",
+          "required_inputs": ["assembled_suv"],
+          "outputs": ["inspected_suv"],
+          "timeout_seconds": 360
+        }
+      ],
+      "metadata": {
+        "estimated_time_minutes": 300,
+        "complexity": "high",
+        "quality_tier": "premium",
+        "cost_estimate": 35000
+      }
+    }
+  ],
+
+  "production_config": {
+    "mode": "continuous",
+    "target_rate": {
+      "value": 50,
+      "unit": "units_per_day"
+    },
+    "shift_schedule": {
+      "shifts_per_day": 3,
+      "hours_per_shift": 8,
+      "days_per_week": 6
+    },
+    "quality_control": {
+      "enabled": true,
+      "inspection_rate": 1.0,
+      "rejection_threshold": 0.95
+    },
+    "inventory": {
+      "enabled": true,
+      "materials": [
+        {
+          "name": "steel_sheet",
+          "initial_quantity": 10000,
+          "reorder_point": 2000,
+          "reorder_quantity": 8000,
+          "unit": "kg"
+        },
+        {
+          "name": "aluminum_sheet",
+          "initial_quantity": 5000,
+          "reorder_point": 1000,
+          "reorder_quantity": 4000,
+          "unit": "kg"
+        },
+        {
+          "name": "welding_wire",
+          "initial_quantity": 500,
+          "reorder_point": 100,
+          "reorder_quantity": 400,
+          "unit": "kg"
+        },
+        {
+          "name": "paint",
+          "initial_quantity": 1000,
+          "reorder_point": 200,
+          "reorder_quantity": 800,
+          "unit": "liters"
+        }
+      ]
+    },
+    "performance_tracking": {
+      "track_oee": true,
+      "track_cycle_time": true,
+      "track_downtime": true,
+      "kpis": [
+        {
+          "name": "units_per_hour",
+          "formula": "completed_units / elapsed_hours",
+          "unit": "units/hour",
+          "target": 2.1
+        },
+        {
+          "name": "first_pass_yield",
+          "formula": "passed_inspections / total_inspections * 100",
+          "unit": "percent",
+          "target": 98.0
+        },
+        {
+          "name": "average_cycle_time",
+          "formula": "sum(cycle_times) / count(cycles)",
+          "unit": "minutes",
+          "target": 240
+        }
+      ]
+    },
+    "simulation": {
+      "time_scale": 1.0,
+      "randomness": 0.15,
+      "enable_anomalies": true,
+      "anomaly_frequency": 0.5
+    }
+  },
+
+  "mqtt_config": {
+    "broker": "mqttbroker",
+    "port": 1883,
+    "site_id": "automotive-plant-001",
+    "topic_prefix": "factory",
+    "qos": 1
+  },
+
+  "database_config": {
+    "enabled": true,
+    "type": "postgresql",
+    "connection": {
+      "host": "postgres",
+      "port": 5432,
+      "database": "automotive_factory",
+      "user": "factory_user",
+      "password": "factory_pass"
+    }
+  },
+
+  "metadata": {
+    "version": "1.0.0",
+    "created_date": "2025-10-27T00:00:00Z",
+    "author": "Factory Configuration Team",
+    "tags": ["automotive", "assembly", "manufacturing", "high-volume"]
+  }
+}

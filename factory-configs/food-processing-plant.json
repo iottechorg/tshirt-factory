@@ -1,0 +1,366 @@
+{
+  "factory_id": "food-processing-001",
+  "factory_name": "Food Processing Plant",
+  "factory_type": "food_processing",
+  "description": "Automated food processing and packaging facility",
+
+  "machines": [
+    {
+      "machine_id": "mixer-01",
+      "machine_type": "mixing",
+      "template_file": "machine-templates/industrial-mixer.json",
+      "instance_name": "Industrial Mixer #1",
+      "location": {
+        "zone": "preparation",
+        "line": "mixing",
+        "position": "M1"
+      },
+      "enabled": true
+    },
+    {
+      "machine_id": "oven-01",
+      "machine_type": "baking",
+      "template_file": "machine-templates/industrial-oven.json",
+      "instance_name": "Convection Oven #1",
+      "location": {
+        "zone": "cooking",
+        "line": "baking",
+        "position": "O1"
+      },
+      "overrides": {
+        "sensors": {
+          "temperature": {
+            "range": {
+              "min": 150.0,
+              "max": 250.0
+            }
+          }
+        }
+      },
+      "enabled": true
+    },
+    {
+      "machine_id": "cooling-01",
+      "machine_type": "cooling",
+      "template_file": "machine-templates/cooling-conveyor.json",
+      "instance_name": "Cooling Conveyor #1",
+      "location": {
+        "zone": "cooling",
+        "line": "cooling",
+        "position": "C1"
+      },
+      "enabled": true
+    },
+    {
+      "machine_id": "packaging-01",
+      "machine_type": "packaging",
+      "template_file": "machine-templates/food-packaging.json",
+      "instance_name": "Automated Packager #1",
+      "location": {
+        "zone": "packaging",
+        "line": "packaging",
+        "position": "P1"
+      },
+      "enabled": true
+    },
+    {
+      "machine_id": "labeling-01",
+      "machine_type": "labeling",
+      "template_file": "machine-templates/labeling-machine.json",
+      "instance_name": "Label Applicator #1",
+      "location": {
+        "zone": "packaging",
+        "line": "labeling",
+        "position": "L1"
+      },
+      "enabled": true
+    },
+    {
+      "machine_id": "quality-01",
+      "machine_type": "quality",
+      "template_file": "machine-templates/food-quality-check.json",
+      "instance_name": "Quality Scanner #1",
+      "location": {
+        "zone": "quality_control",
+        "line": "inspection",
+        "position": "Q1"
+      },
+      "enabled": true
+    }
+  ],
+
+  "workflows": [
+    {
+      "workflow_id": "cookie-production",
+      "workflow_name": "Cookie Production Line",
+      "product_type": "cookies",
+      "description": "Complete cookie production from mixing to packaging",
+      "steps": [
+        {
+          "step_id": "step-1",
+          "step_name": "Mix ingredients",
+          "machine_type": "mixing",
+          "operation": "mix_dough",
+          "parameters": {
+            "batch_size": 50,
+            "ingredients": ["flour", "sugar", "butter", "eggs"],
+            "mixing_time": 5
+          },
+          "required_inputs": ["flour", "sugar", "butter", "eggs"],
+          "outputs": ["cookie_dough"],
+          "timeout_seconds": 600
+        },
+        {
+          "step_id": "step-2",
+          "step_name": "Bake cookies",
+          "machine_type": "baking",
+          "operation": "bake",
+          "parameters": {
+            "temperature": 180,
+            "duration": 12,
+            "batch_size": 100
+          },
+          "required_inputs": ["cookie_dough"],
+          "outputs": ["baked_cookies"],
+          "timeout_seconds": 900
+        },
+        {
+          "step_id": "step-3",
+          "step_name": "Cool cookies",
+          "machine_type": "cooling",
+          "operation": "cool_down",
+          "parameters": {
+            "target_temperature": 25,
+            "conveyor_speed": 0.5
+          },
+          "required_inputs": ["baked_cookies"],
+          "outputs": ["cooled_cookies"],
+          "timeout_seconds": 600
+        },
+        {
+          "step_id": "step-4",
+          "step_name": "Quality check",
+          "machine_type": "quality",
+          "operation": "inspect_food",
+          "parameters": {
+            "check_type": "visual_weight"
+          },
+          "required_inputs": ["cooled_cookies"],
+          "outputs": ["quality_approved_cookies"],
+          "timeout_seconds": 180
+        },
+        {
+          "step_id": "step-5",
+          "step_name": "Package cookies",
+          "machine_type": "packaging",
+          "operation": "seal_package",
+          "parameters": {
+            "package_type": "box",
+            "cookies_per_package": 12
+          },
+          "required_inputs": ["quality_approved_cookies"],
+          "outputs": ["packaged_cookies"],
+          "timeout_seconds": 300
+        },
+        {
+          "step_id": "step-6",
+          "step_name": "Apply labels",
+          "machine_type": "labeling",
+          "operation": "apply_label",
+          "parameters": {
+            "label_type": "nutrition_info",
+            "barcode": true
+          },
+          "required_inputs": ["packaged_cookies"],
+          "outputs": ["labeled_product"],
+          "timeout_seconds": 120
+        }
+      ],
+      "metadata": {
+        "estimated_time_minutes": 45,
+        "complexity": "standard",
+        "quality_tier": "food_grade",
+        "cost_estimate": 15
+      }
+    },
+    {
+      "workflow_id": "bread-production",
+      "workflow_name": "Bread Production Line",
+      "product_type": "bread",
+      "description": "Industrial bread production workflow",
+      "steps": [
+        {
+          "step_id": "step-1",
+          "step_name": "Mix bread dough",
+          "machine_type": "mixing",
+          "operation": "mix_dough",
+          "parameters": {
+            "batch_size": 100,
+            "ingredients": ["flour", "water", "yeast", "salt"],
+            "mixing_time": 10
+          },
+          "required_inputs": ["flour", "water", "yeast", "salt"],
+          "outputs": ["bread_dough"],
+          "timeout_seconds": 900
+        },
+        {
+          "step_id": "step-2",
+          "step_name": "Bake bread",
+          "machine_type": "baking",
+          "operation": "bake",
+          "parameters": {
+            "temperature": 220,
+            "duration": 25,
+            "batch_size": 50
+          },
+          "required_inputs": ["bread_dough"],
+          "outputs": ["baked_bread"],
+          "timeout_seconds": 1800
+        },
+        {
+          "step_id": "step-3",
+          "step_name": "Cool bread",
+          "machine_type": "cooling",
+          "operation": "cool_down",
+          "parameters": {
+            "target_temperature": 30
+          },
+          "required_inputs": ["baked_bread"],
+          "outputs": ["cooled_bread"],
+          "timeout_seconds": 900
+        },
+        {
+          "step_id": "step-4",
+          "step_name": "Quality inspection",
+          "machine_type": "quality",
+          "operation": "inspect_food",
+          "required_inputs": ["cooled_bread"],
+          "outputs": ["quality_bread"],
+          "timeout_seconds": 240
+        },
+        {
+          "step_id": "step-5",
+          "step_name": "Package bread",
+          "machine_type": "packaging",
+          "operation": "seal_package",
+          "parameters": {
+            "package_type": "plastic_bag"
+          },
+          "required_inputs": ["quality_bread"],
+          "outputs": ["packaged_bread"],
+          "timeout_seconds": 180
+        },
+        {
+          "step_id": "step-6",
+          "step_name": "Label bread",
+          "machine_type": "labeling",
+          "operation": "apply_label",
+          "required_inputs": ["packaged_bread"],
+          "outputs": ["final_product"],
+          "timeout_seconds": 120
+        }
+      ],
+      "metadata": {
+        "estimated_time_minutes": 70,
+        "complexity": "standard",
+        "quality_tier": "food_grade"
+      }
+    }
+  ],
+
+  "production_config": {
+    "mode": "batch",
+    "target_rate": {
+      "value": 20,
+      "unit": "batches_per_day"
+    },
+    "shift_schedule": {
+      "shifts_per_day": 2,
+      "hours_per_shift": 8,
+      "days_per_week": 5
+    },
+    "quality_control": {
+      "enabled": true,
+      "inspection_rate": 0.2,
+      "rejection_threshold": 0.98
+    },
+    "inventory": {
+      "enabled": true,
+      "materials": [
+        {
+          "name": "flour",
+          "initial_quantity": 5000,
+          "reorder_point": 1000,
+          "reorder_quantity": 4000,
+          "unit": "kg"
+        },
+        {
+          "name": "sugar",
+          "initial_quantity": 2000,
+          "reorder_point": 400,
+          "reorder_quantity": 1600,
+          "unit": "kg"
+        },
+        {
+          "name": "packaging_boxes",
+          "initial_quantity": 10000,
+          "reorder_point": 2000,
+          "reorder_quantity": 8000,
+          "unit": "units"
+        }
+      ]
+    },
+    "performance_tracking": {
+      "track_oee": true,
+      "track_cycle_time": true,
+      "track_downtime": true,
+      "kpis": [
+        {
+          "name": "batches_per_hour",
+          "formula": "completed_batches / elapsed_hours",
+          "unit": "batches/hour",
+          "target": 1.25
+        },
+        {
+          "name": "yield_rate",
+          "formula": "good_output / total_input * 100",
+          "unit": "percent",
+          "target": 98.5
+        }
+      ]
+    },
+    "simulation": {
+      "time_scale": 10.0,
+      "randomness": 0.1,
+      "enable_anomalies": true,
+      "anomaly_frequency": 0.3
+    }
+  },
+
+  "mqtt_config": {
+    "broker": "mqttbroker",
+    "port": 1883,
+    "site_id": "food-plant-001",
+    "topic_prefix": "factory",
+    "qos": 1
+  },
+
+  "database_config": {
+    "enabled": true,
+    "type": "postgresql",
+    "connection": {
+      "host": "postgres",
+      "port": 5432,
+      "database": "food_factory",
+      "user": "factory_user",
+      "password": "factory_pass"
+    }
+  },
+
+  "metadata": {
+    "version": "1.0.0",
+    "created_date": "2025-10-27T00:00:00Z",
+    "author": "Factory Configuration Team",
+    "tags": ["food_processing", "bakery", "automated", "batch_production"]
+  }
+}

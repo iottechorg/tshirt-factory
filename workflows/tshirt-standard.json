@@ -1,0 +1,56 @@
+{
+  "workflow_id": "workflow-tshirt-standard",
+  "workflow_name": "Standard T-Shirt Production",
+  "description": "Complete t-shirt production: cutting, sewing, ironing, printing",
+  "product_type": "tshirt",
+  "steps": [
+    {
+      "step_id": "step-1",
+      "machine_type": "cutting",
+      "operation": "cut_fabric",
+      "required_inputs": ["material", "cut_size"],
+      "optional_inputs": [],
+      "outputs": ["cut_fabric"],
+      "parallel_group": null,
+      "timeout_seconds": 60,
+      "retry_count": 0
+    },
+    {
+      "step_id": "step-2",
+      "machine_type": "sewing",
+      "operation": "sew_pieces",
+      "required_inputs": ["cut_fabric", "stitch_type", "thread_color"],
+      "optional_inputs": [],
+      "outputs": ["sewn_garment"],
+      "parallel_group": null,
+      "timeout_seconds": 60,
+      "retry_count": 0
+    },
+    {
+      "step_id": "step-3",
+      "machine_type": "ironing",
+      "operation": "iron_garment",
+      "required_inputs": ["sewn_garment", "iron_temperature_setpoint", "steam_level"],
+      "optional_inputs": [],
+      "outputs": ["ironed_garment"],
+      "parallel_group": null,
+      "timeout_seconds": 60,
+      "retry_count": 0
+    },
+    {
+      "step_id": "step-4",
+      "machine_type": "printing",
+      "operation": "print_design",
+      "required_inputs": ["ironed_garment", "ink_type"],
+      "optional_inputs": ["design_name"],
+      "outputs": ["finished_product"],
+      "parallel_group": null,
+      "timeout_seconds": 60,
+      "retry_count": 0
+    }
+  ],
+  "metadata": {
+    "estimated_time_minutes": 20,
+    "complexity": "standard"
+  }
+}

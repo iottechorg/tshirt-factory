@@ -1,0 +1,114 @@
+{
+  "workflow_id": "workflow-jacket-parallel",
+  "workflow_name": "Jacket with Parallel Sleeve Processing",
+  "description": "Jacket production with body and sleeves processed in parallel",
+  "product_type": "jacket",
+  "steps": [
+    {
+      "step_id": "step-1a",
+      "machine_type": "cutting",
+      "operation": "cut_jacket_body",
+      "required_inputs": ["material", "cut_size"],
+      "optional_inputs": [],
+      "outputs": ["cut_body"],
+      "parallel_group": 1,
+      "timeout_seconds": 90,
+      "retry_count": 0
+    },
+    {
+      "step_id": "step-1b",
+      "machine_type": "cutting",
+      "operation": "cut_left_sleeve",
+      "required_inputs": ["material", "cut_size"],
+      "optional_inputs": [],
+      "outputs": ["cut_left_sleeve"],
+      "parallel_group": 1,
+      "timeout_seconds": 60,
+      "retry_count": 0
+    },
+    {
+      "step_id": "step-1c",
+      "machine_type": "cutting",
+      "operation": "cut_right_sleeve",
+      "required_inputs": ["material", "cut_size"],
+      "optional_inputs": [],
+      "outputs": ["cut_right_sleeve"],
+      "parallel_group": 1,
+      "timeout_seconds": 60,
+      "retry_count": 0
+    },
+    {
+      "step_id": "step-2a",
+      "machine_type": "sewing",
+      "operation": "sew_body",
+      "required_inputs": ["cut_body", "stitch_type", "thread_color"],
+      "optional_inputs": [],
+      "outputs": ["sewn_body"],
+      "parallel_group": 2,
+      "timeout_seconds": 120,
+      "retry_count": 0
+    },
+    {
+      "step_id": "step-2b",
+      "machine_type": "sewing",
+      "operation": "sew_left_sleeve",
+      "required_inputs": ["cut_left_sleeve", "stitch_type", "thread_color"],
+      "optional_inputs": [],
+      "outputs": ["sewn_left_sleeve"],
+      "parallel_group": 2,
+      "timeout_seconds": 60,
+      "retry_count": 0
+    },
+    {
+      "step_id": "step-2c",
+      "machine_type": "sewing",
+      "operation": "sew_right_sleeve",
+      "required_inputs": ["cut_right_sleeve", "stitch_type", "thread_color"],
+      "optional_inputs": [],
+      "outputs": ["sewn_right_sleeve"],
+      "parallel_group": 2,
+      "timeout_seconds": 60,
+      "retry_count": 0
+    },
+    {
+      "step_id": "step-3",
+      "machine_type": "sewing",
+      "operation": "attach_sleeves",
+      "required_inputs": ["sewn_body", "sewn_left_sleeve", "sewn_right_sleeve", "stitch_type"],
+      "optional_inputs": [],
+      "outputs": ["assembled_jacket"],
+      "parallel_group": null,
+      "timeout_seconds": 90,
+      "retry_count": 0
+    },
+    {
+      "step_id": "step-4",
+      "machine_type": "ironing",
+      "operation": "press_jacket",
+      "required_inputs": ["assembled_jacket", "iron_temperature_setpoint", "steam_level"],
+      "optional_inputs": [],
+      "outputs": ["pressed_jacket"],
+      "parallel_group": null,
+      "timeout_seconds": 120,
+      "retry_count": 0
+    },
+    {
+      "step_id": "step-5",
+      "machine_type": "printing",
+      "operation": "add_branding",
+      "required_inputs": ["pressed_jacket", "ink_type"],
+      "optional_inputs": ["logo_position"],
+      "outputs": ["finished_jacket"],
+      "parallel_group": null,
+      "timeout_seconds": 60,
+      "retry_count": 1
+    }
+  ],
+  "metadata": {
+    "estimated_time_minutes": 50,
+    "complexity": "complex",
+    "parallel_groups": 2,
+    "component_count": 3,
+    "note": "Body and sleeves processed simultaneously for efficiency"
+  }
+}

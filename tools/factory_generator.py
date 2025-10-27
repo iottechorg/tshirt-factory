@@ -1,0 +1,575 @@
+#!/usr/bin/env python3
+"""
+Factory Generator from JSON Configuration
+
+This tool generates a complete factory simulation from JSON configuration files.
+It creates:
+- Machine instances based on templates
+- Workflow definitions
+- Docker compose configuration
+- Database schemas
+- MQTT topics
+"""
+
+import json
+import os
+import sys
+from pathlib import Path
+from typing import Dict, List, Any
+import argparse
+
+
+class FactoryGenerator:
+    """Generate factory components from JSON configuration"""
+
+    def __init__(self, config_file: str, output_dir: str = "."):
+        self.config_file = config_file
+        self.output_dir = Path(output_dir)
+        self.config = self.load_config()
+        self.machine_templates = {}
+
+    def load_config(self) -> Dict:
+        """Load factory configuration from JSON"""
+        with open(self.config_file, 'r') as f:
+            return json.load(f)
+
+    def load_machine_template(self, template_file: str) -> Dict:
+        """Load machine template from JSON"""
+        if template_file in self.machine_templates:
+            return self.machine_templates[template_file]
+
+        # Try to find template file
+        template_path = Path(template_file)
+        if not template_path.exists():
+            # Try relative to config file
+            config_dir = Path(self.config_file).parent.parent
+            template_path = config_dir / template_file
+
+        if not template_path.exists():
+            raise FileNotFoundError(f"Machine template not found: {template_file}")
+
+        with open(template_path, 'r') as f:
+            template = json.load(f)
+            self.machine_templates[template_file] = template
+            return template
+
+    def generate_machine_class(self, machine_config: Dict, template: Dict) -> str:
+        """Generate Python machine class from template"""
+        machine_type = machine_config['machine_type']
+        class_name = ''.join(word.capitalize() for word in machine_type.split('_'))
+
+        # Generate sensor initialization
+        sensors_init = []
+        for sensor in template['sensors']:
+            name = sensor['name']
+            if sensor['initial_value'] == 'random':
+                range_def = sensor['range']
+                if 'min' in range_def and 'max' in range_def:
+                    sensors_init.append(
+                        f'            "{name}": random.uniform({range_def["min"]}, {range_def["max"]})'
+                    )
+                elif 'values' in range_def:
+                    sensors_init.append(
+                        f'            "{name}": random.choice({range_def["values"]})'
+                    )
+            else:
+                sensors_init.append(f'            "{name}": {sensor["initial_value"]}')
+
+        # Generate sensor updates
+        sensor_updates = []
+        for sensor in template['sensors']:
+            name = sensor['name']
+            behavior = sensor['update_behavior']
+
+            if behavior['type'] == 'random_walk':
+                params = behavior.get('parameters', {})
+                variation = params.get('variation', 0.5)
+                bounds_check = params.get('bounds_check', True)
+
+                update_code = f'        self.sensor_data["{name}"] += random.uniform(-{variation}, {variation})'
+                sensor_updates.append(update_code)
+
+                if bounds_check and 'range' in sensor:
+                    range_def = sensor['range']
+                    if 'min' in range_def and 'max' in range_def:
+                        bounds_code = f'        self.sensor_data["{name}"] = max({range_def["min"]}, min({range_def["max"]}, self.sensor_data["{name}"]))'
+                        sensor_updates.append(bounds_code)
+
+            elif behavior['type'] == 'sine_wave':
+                params = behavior['parameters']
+                sensor_updates.append(
+                    f'        # Sine wave for {name} - implement in update loop'
+                )
+
+            elif behavior['type'] == 'static':
+                sensor_updates.append(f'        # {name} is static')
+
+        # Generate operations list
+        operations = [op['name'] for op in template['operations']]
+        operations_str = json.dumps(operations)
+
+        # Generate class code
+        class_code = f'''"""
+{class_name} Machine Implementation
+Auto-generated from template: {machine_config['template_file']}
+"""
+import sys
+import os
+import random
+import time
+import math
+from typing import Dict, Any
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../shared'))
+from base_machine import BaseMachine
+
+
+class {class_name}Machine(BaseMachine):
+    """
+    {template.get('machine_name', class_name)} - {template.get('description', '')}
+
+    Category: {template.get('category', 'general')}
+
+    Sensors:
+'''
+        for sensor in template['sensors']:
+            class_code += f"    - {sensor['name']}: {sensor['type']} ({sensor['unit']})\n"
+
+        class_code += f'''
+    Operations:
+'''
+        for op in template['operations']:
+            class_code += f"    - {op['name']}: {op.get('display_name', op['name'])}\n"
+
+        class_code += f'''    """
+
+    def __init__(self, machine_id: str, machine_name: str = "{machine_type}"):
+        super().__init__(machine_id, "{machine_type}", machine_name)
+        self.operations = {operations_str}
+
+        # Template metadata
+        self.template_info = {{
+            "manufacturer": "{template.get('metadata', {}).get('manufacturer', 'Unknown')}",
+            "model": "{template.get('metadata', {}).get('model', 'N/A')}",
+            "category": "{template.get('category', 'general')}"
+        }}
+
+        # Telemetry configuration
+        self.telemetry_interval = {template['telemetry_config']['publish_interval']}
+        self.sensor_update_interval = {template['telemetry_config'].get('sensor_update_interval', 1.0)}
+
+        # Initialize custom metrics
+        self.custom_metrics = {{}}
+
+    def _initialize_sensors(self) -> Dict[str, Any]:
+        """Initialize sensor values from template"""
+        return {{
+{chr(10).join(sensors_init)}
+        }}
+
+    def update_sensors(self):
+        """Update sensor readings based on template behavior"""
+        if not self.is_running:
+            return
+
+{chr(10).join(sensor_updates)}
+
+    def validate_process_data(self, process_data: Dict) -> bool:
+        """Validate process data based on operation requirements"""
+        if not isinstance(process_data, dict):
+            return False
+
+        operation = process_data.get("operation")
+        if operation not in self.operations:
+            return False
+
+        # Get operation template
+        op_template = self._get_operation_template(operation)
+        if not op_template:
+            return True  # No template validation
+
+        # Validate required inputs
+        required_inputs = [inp['name'] for inp in op_template.get('inputs', []) if inp.get('required', True)]
+        return all(inp in process_data for inp in required_inputs)
+
+    def _get_operation_template(self, operation_name: str) -> Dict:
+        """Get operation configuration from template"""
+        operations_templates = {json.dumps(template['operations'], indent=8)}
+        for op in operations_templates:
+            if op['name'] == operation_name:
+                return op
+        return {{}}
+
+    def calculate_custom_metrics(self) -> Dict[str, float]:
+        """Calculate custom metrics defined in template"""
+        metrics = {{}}
+
+        # Add template-defined metrics here
+        # Example: "weld_quality_index": "(arc_voltage - 20) / 10 * 100"
+
+        return metrics
+
+    def process_operation(self, process_data: Dict) -> Dict:
+        """Process an operation based on template configuration"""
+        if not self.validate_process_data(process_data):
+            return {{
+                "status": "failed",
+                "error": "Invalid process data",
+                "machine_id": self.machine_id,
+                "machine_type": self.machine_type
+            }}
+
+        operation = process_data.get("operation")
+        op_template = self._get_operation_template(operation)
+
+        # Calculate duration
+        duration = self._calculate_duration(op_template, process_data)
+
+        # Simulate processing
+        time.sleep(min(duration, 2.0))  # Cap at 2 seconds for simulation
+
+        # Check for failures
+        if self._check_failures(op_template):
+            return {{
+                "status": "failed",
+                "error": "Operation failed",
+                "machine_id": self.machine_id,
+                "machine_type": self.machine_type,
+                "operation": operation
+            }}
+
+        # Apply sensor impacts
+        self._apply_sensor_impacts(op_template)
+
+        return {{
+            "status": "success",
+            "machine_id": self.machine_id,
+            "machine_type": self.machine_type,
+            "operation": operation,
+            "outputs": op_template.get('outputs', []),
+            "duration": duration,
+            "timestamp": time.time()
+        }}
+
+    def _calculate_duration(self, op_template: Dict, process_data: Dict) -> float:
+        """Calculate operation duration from template"""
+        if not op_template:
+            return 1.0
+
+        duration_config = op_template.get('duration', {{}})
+        duration_type = duration_config.get('type', 'fixed')
+
+        if duration_type == 'fixed':
+            return duration_config.get('value', 1.0)
+        elif duration_type == 'range':
+            return random.uniform(
+                duration_config.get('min', 1.0),
+                duration_config.get('max', 5.0)
+            )
+        elif duration_type == 'formula':
+            # TODO: Safely evaluate formula
+            return duration_config.get('value', 1.0)
+
+        return 1.0
+
+    def _check_failures(self, op_template: Dict) -> bool:
+        """Check if operation should fail based on template failure modes"""
+        if not op_template:
+            return self.simulate_failure()
+
+        failure_modes = op_template.get('failure_modes', [])
+        for failure_mode in failure_modes:
+            probability = failure_mode.get('probability', 0.01)
+            if random.random() < probability:
+                # Check conditions if any
+                conditions = failure_mode.get('conditions', {{}})
+                if self._check_failure_conditions(conditions):
+                    return True
+
+        return False
+
+    def _check_failure_conditions(self, conditions: Dict) -> bool:
+        """Check if failure conditions are met"""
+        for sensor_name, condition in conditions.items():
+            if sensor_name not in self.sensor_data:
+                continue
+
+            value = self.sensor_data[sensor_name]
+            if 'min' in condition and value < condition['min']:
+                return True
+            if 'max' in condition and value > condition['max']:
+                return True
+
+        return False
+
+    def _apply_sensor_impacts(self, op_template: Dict):
+        """Apply sensor impacts from operation"""
+        sensor_impacts = op_template.get('sensor_impacts', [])
+        for impact in sensor_impacts:
+            sensor_name = impact['sensor_name']
+            if sensor_name in self.sensor_data:
+                change = impact['impact'].get('change')
+                if change is not None:
+                    if isinstance(change, bool):
+                        self.sensor_data[sensor_name] = change
+                    else:
+                        self.sensor_data[sensor_name] += change
+'''
+
+        return class_code
+
+    def generate_docker_compose(self) -> str:
+        """Generate docker-compose configuration for factory"""
+        compose = {
+            'version': '3.8',
+            'volumes': {
+                'mosquitto_data': None,
+                'mosquitto_log': None,
+                'postgres_data': None,
+                'timescaledb_data': None,
+                'redis_data': None
+            },
+            'networks': {
+                f"{self.config['factory_id']}-network": {
+                    'driver': 'bridge'
+                }
+            },
+            'services': {}
+        }
+
+        # Add MQTT broker
+        compose['services']['mqttbroker'] = {
+            'image': 'eclipse-mosquitto:latest',
+            'container_name': f"{self.config['factory_id']}-mqtt",
+            'ports': ['31883:1883', '9001:9001'],
+            'volumes': [
+                './mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf',
+                'mosquitto_data:/mosquitto/data',
+                'mosquitto_log:/mosquitto/log'
+            ],
+            'networks': [f"{self.config['factory_id']}-network"],
+            'restart': 'unless-stopped'
+        }
+
+        # Add databases
+        compose['services']['postgres'] = {
+            'image': 'postgres:15-alpine',
+            'container_name': f"{self.config['factory_id']}-postgres",
+            'environment': {
+                'POSTGRES_USER': 'factory_user',
+                'POSTGRES_PASSWORD': 'factory_pass',
+                'POSTGRES_DB': self.config['database_config']['connection']['database']
+            },
+            'ports': ['5432:5432'],
+            'volumes': ['postgres_data:/var/lib/postgresql/data'],
+            'networks': [f"{self.config['factory_id']}-network"],
+            'restart': 'unless-stopped'
+        }
+
+        # Add machines
+        for machine in self.config['machines']:
+            if not machine.get('enabled', True):
+                continue
+
+            machine_id = machine['machine_id']
+            machine_type = machine['machine_type']
+
+            compose['services'][machine_id] = {
+                'build': {
+                    'context': './services',
+                    'dockerfile': f"machines/{machine_type}/Dockerfile"
+                },
+                'container_name': machine_id,
+                'environment': {
+                    'MACHINE_ID': machine_id,
+                    'MACHINE_TYPE': machine_type,
+                    'MQTT_BROKER': 'mqttbroker',
+                    'MQTT_PORT': 1883,
+                    'FACTORY_SITE_ID': self.config.get('mqtt_config', {}).get('site_id', 'site-01'),
+                    'MACHINE_SENSOR_UPDATE_INTERVAL': 2,
+                    'MACHINE_DATA_PUBLISH_INTERVAL': 5,
+                    'SERVICE_NAME': machine_id
+                },
+                'depends_on': ['mqttbroker'],
+                'networks': [f"{self.config['factory_id']}-network"],
+                'restart': 'unless-stopped'
+            }
+
+        return json.dumps(compose, indent=2)
+
+    def generate_factory(self):
+        """Generate complete factory from configuration"""
+        factory_id = self.config['factory_id']
+        factory_name = self.config['factory_name']
+
+        print(f"Generating factory: {factory_name} ({factory_id})")
+        print(f"Factory type: {self.config['factory_type']}")
+        print(f"Machines: {len(self.config['machines'])}")
+        print(f"Workflows: {len(self.config['workflows'])}")
+        print()
+
+        # Create output directories
+        factory_dir = self.output_dir / factory_id
+        machines_dir = factory_dir / "machines"
+        workflows_dir = factory_dir / "workflows"
+
+        factory_dir.mkdir(parents=True, exist_ok=True)
+        machines_dir.mkdir(exist_ok=True)
+        workflows_dir.mkdir(exist_ok=True)
+
+        # Generate machine classes
+        print("Generating machine classes...")
+        unique_types = set()
+        for machine in self.config['machines']:
+            machine_type = machine['machine_type']
+            if machine_type in unique_types:
+                continue
+            unique_types.add(machine_type)
+
+            print(f"  - {machine_type}")
+
+            # Load template
+            template = self.load_machine_template(machine['template_file'])
+
+            # Generate machine class
+            machine_code = self.generate_machine_class(machine, template)
+
+            # Write machine class
+            machine_file = machines_dir / machine_type / f"{machine_type}_machine.py"
+            machine_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(machine_file, 'w') as f:
+                f.write(machine_code)
+
+        # Generate workflows
+        print("\nGenerating workflows...")
+        for workflow in self.config['workflows']:
+            workflow_id = workflow['workflow_id']
+            print(f"  - {workflow_id}")
+
+            workflow_file = workflows_dir / f"{workflow_id}.json"
+            with open(workflow_file, 'w') as f:
+                json.dump(workflow, f, indent=2)
+
+        # Generate docker-compose
+        print("\nGenerating docker-compose configuration...")
+        compose_yaml = self.generate_docker_compose()
+        compose_file = factory_dir / "docker-compose.yml"
+        with open(compose_file, 'w') as f:
+            f.write(compose_yaml)
+
+        # Generate README
+        print("\nGenerating documentation...")
+        readme = self._generate_readme()
+        readme_file = factory_dir / "README.md"
+        with open(readme_file, 'w') as f:
+            f.write(readme)
+
+        print(f"\n✅ Factory generated successfully in: {factory_dir}")
+        print(f"\nNext steps:")
+        print(f"1. cd {factory_dir}")
+        print(f"2. docker compose up --build")
+        print(f"3. Start production workflows")
+
+    def _generate_readme(self) -> str:
+        """Generate README for factory"""
+        factory_name = self.config['factory_name']
+        factory_type = self.config['factory_type']
+
+        readme = f'''# {factory_name}
+
+{self.config.get('description', '')}
+
+## Factory Configuration
+
+- **Type**: {factory_type}
+- **ID**: {self.config['factory_id']}
+- **Machines**: {len(self.config['machines'])}
+- **Workflows**: {len(self.config['workflows'])}
+
+## Machines
+
+'''
+        for machine in self.config['machines']:
+            readme += f"- **{machine['machine_id']}**: {machine.get('instance_name', machine['machine_type'])}\n"
+
+        readme += '''
+## Workflows
+
+'''
+        for workflow in self.config['workflows']:
+            readme += f"- **{workflow['workflow_id']}**: {workflow['workflow_name']} ({len(workflow['steps'])} steps)\n"
+
+        readme += f'''
+
+## Quick Start
+
+```bash
+# Start factory
+docker compose up --build
+
+# Monitor MQTT
+mosquitto_sub -h localhost -p 31883 -t "factory/#" -v
+
+# Send production order
+mosquitto_pub -h localhost -p 31883 \\
+  -t "factory/{self.config.get('mqtt_config', {}).get('site_id', 'site-01')}/production/request" \\
+  -m '{{"product_type": "{self.config['workflows'][0]['product_type']}", "quantity": 1}}'
+```
+
+## Production Configuration
+
+- **Mode**: {self.config['production_config']['mode']}
+- **Target Rate**: {self.config['production_config']['target_rate']['value']} {self.config['production_config']['target_rate']['unit']}
+- **Quality Control**: {'Enabled' if self.config['production_config'].get('quality_control', {}).get('enabled') else 'Disabled'}
+
+## Generated Files
+
+This factory was auto-generated from: `{self.config_file}`
+
+Generated: {self.config.get('metadata', {}).get('created_date', 'N/A')}
+Version: {self.config.get('metadata', {}).get('version', '1.0.0')}
+'''
+
+        return readme
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Generate factory simulation from JSON configuration',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog='''
+Examples:
+  # Generate automotive factory
+  python factory_generator.py factory-configs/automotive-assembly-plant.json
+
+  # Generate food processing plant
+  python factory_generator.py factory-configs/food-processing-plant.json \\
+    --output generated-factories
+
+  # Generate custom factory
+  python factory_generator.py my-factory-config.json
+        '''
+    )
+
+    parser.add_argument('config_file', help='Factory configuration JSON file')
+    parser.add_argument('--output', '-o', default='generated-factories',
+                        help='Output directory for generated factory (default: generated-factories)')
+
+    args = parser.parse_args()
+
+    if not os.path.exists(args.config_file):
+        print(f"Error: Configuration file not found: {args.config_file}")
+        sys.exit(1)
+
+    try:
+        generator = FactoryGenerator(args.config_file, args.output)
+        generator.generate_factory()
+    except Exception as e:
+        print(f"Error generating factory: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

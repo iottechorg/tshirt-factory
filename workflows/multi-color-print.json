@@ -1,0 +1,91 @@
+{
+  "workflow_id": "workflow-multi-color-print",
+  "workflow_name": "Multi-Color Screen Print",
+  "description": "T-shirt with multiple color layers printed sequentially",
+  "product_type": "multi-color-tshirt",
+  "steps": [
+    {
+      "step_id": "step-1",
+      "machine_type": "cutting",
+      "operation": "cut_fabric",
+      "required_inputs": ["material", "cut_size"],
+      "optional_inputs": [],
+      "outputs": ["cut_fabric"],
+      "parallel_group": null,
+      "timeout_seconds": 60,
+      "retry_count": 0
+    },
+    {
+      "step_id": "step-2",
+      "machine_type": "sewing",
+      "operation": "sew_pieces",
+      "required_inputs": ["cut_fabric", "stitch_type", "thread_color"],
+      "optional_inputs": [],
+      "outputs": ["sewn_base"],
+      "parallel_group": null,
+      "timeout_seconds": 60,
+      "retry_count": 0
+    },
+    {
+      "step_id": "step-3",
+      "machine_type": "ironing",
+      "operation": "pre_print_press",
+      "required_inputs": ["sewn_base", "iron_temperature_setpoint", "steam_level"],
+      "optional_inputs": [],
+      "outputs": ["pressed_base"],
+      "parallel_group": null,
+      "timeout_seconds": 45,
+      "retry_count": 0
+    },
+    {
+      "step_id": "step-4",
+      "machine_type": "printing",
+      "operation": "print_base_color",
+      "required_inputs": ["pressed_base", "ink_type"],
+      "optional_inputs": ["color_1"],
+      "outputs": ["layer_1_printed"],
+      "parallel_group": null,
+      "timeout_seconds": 60,
+      "retry_count": 1
+    },
+    {
+      "step_id": "step-5",
+      "machine_type": "printing",
+      "operation": "print_second_color",
+      "required_inputs": ["layer_1_printed", "ink_type"],
+      "optional_inputs": ["color_2"],
+      "outputs": ["layer_2_printed"],
+      "parallel_group": null,
+      "timeout_seconds": 60,
+      "retry_count": 1
+    },
+    {
+      "step_id": "step-6",
+      "machine_type": "printing",
+      "operation": "print_third_color",
+      "required_inputs": ["layer_2_printed", "ink_type"],
+      "optional_inputs": ["color_3"],
+      "outputs": ["layer_3_printed"],
+      "parallel_group": null,
+      "timeout_seconds": 60,
+      "retry_count": 1
+    },
+    {
+      "step_id": "step-7",
+      "machine_type": "ironing",
+      "operation": "cure_print",
+      "required_inputs": ["layer_3_printed", "iron_temperature_setpoint"],
+      "optional_inputs": ["cure_time"],
+      "outputs": ["finished_multicolor"],
+      "parallel_group": null,
+      "timeout_seconds": 90,
+      "retry_count": 0
+    }
+  ],
+  "metadata": {
+    "estimated_time_minutes": 45,
+    "complexity": "complex",
+    "color_count": 3,
+    "requires_curing": true
+  }
+}

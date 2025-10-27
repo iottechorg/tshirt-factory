@@ -1,0 +1,342 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Machine Template Schema",
+  "description": "Defines a machine type with its sensors, operations, and data generation behavior",
+  "type": "object",
+  "required": ["machine_type", "machine_name", "sensors", "operations", "telemetry_config"],
+  "properties": {
+    "machine_type": {
+      "type": "string",
+      "description": "Unique identifier for the machine type (lowercase, no spaces)",
+      "pattern": "^[a-z0-9]+$",
+      "examples": ["cutting", "welding", "assembly", "painting"]
+    },
+    "machine_name": {
+      "type": "string",
+      "description": "Human-readable name for the machine type",
+      "examples": ["Cutting Machine", "Welding Robot", "Assembly Line"]
+    },
+    "description": {
+      "type": "string",
+      "description": "Description of what this machine does"
+    },
+    "category": {
+      "type": "string",
+      "description": "Machine category for grouping",
+      "examples": ["fabrication", "assembly", "quality", "packaging", "processing"]
+    },
+    "sensors": {
+      "type": "array",
+      "description": "List of sensors this machine has",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "type", "unit", "range", "update_behavior"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Sensor name (snake_case)",
+            "pattern": "^[a-z_][a-z0-9_]*$"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["float", "integer", "boolean", "string"],
+            "description": "Data type of sensor readings"
+          },
+          "unit": {
+            "type": "string",
+            "description": "Unit of measurement",
+            "examples": ["celsius", "psi", "rpm", "percent", "meters_per_second"]
+          },
+          "range": {
+            "type": "object",
+            "description": "Value range for this sensor",
+            "oneOf": [
+              {
+                "required": ["min", "max"],
+                "properties": {
+                  "min": {"type": "number"},
+                  "max": {"type": "number"}
+                }
+              },
+              {
+                "required": ["values"],
+                "properties": {
+                  "values": {
+                    "type": "array",
+                    "description": "Discrete values for boolean/string types"
+                  }
+                }
+              }
+            ]
+          },
+          "initial_value": {
+            "description": "Initial value (or 'random' to pick from range)"
+          },
+          "update_behavior": {
+            "type": "object",
+            "description": "How the sensor value changes over time",
+            "required": ["type"],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["random_walk", "static", "sine_wave", "step", "conditional"],
+                "description": "Type of value change pattern"
+              },
+              "parameters": {
+                "type": "object",
+                "description": "Parameters specific to the update behavior type",
+                "examples": [
+                  {"variation": 0.5, "bounds_check": true},
+                  {"amplitude": 10, "frequency": 0.1, "offset": 50},
+                  {"step_size": 5, "probability": 0.1}
+                ]
+              }
+            }
+          },
+          "anomaly_detection": {
+            "type": "object",
+            "description": "Anomaly thresholds for this sensor",
+            "properties": {
+              "warning_min": {"type": "number"},
+              "warning_max": {"type": "number"},
+              "critical_min": {"type": "number"},
+              "critical_max": {"type": "number"}
+            }
+          }
+        }
+      }
+    },
+    "operations": {
+      "type": "array",
+      "description": "Operations this machine can perform",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "duration", "inputs", "outputs"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Operation name (snake_case)",
+            "pattern": "^[a-z_][a-z0-9_]*$"
+          },
+          "display_name": {
+            "type": "string",
+            "description": "Human-readable operation name"
+          },
+          "description": {
+            "type": "string",
+            "description": "What this operation does"
+          },
+          "duration": {
+            "type": "object",
+            "description": "How long this operation takes",
+            "required": ["type"],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["fixed", "range", "formula"],
+                "description": "Duration calculation type"
+              },
+              "value": {
+                "type": "number",
+                "description": "Fixed duration in seconds"
+              },
+              "min": {
+                "type": "number",
+                "description": "Minimum duration for range type"
+              },
+              "max": {
+                "type": "number",
+                "description": "Maximum duration for range type"
+              },
+              "formula": {
+                "type": "string",
+                "description": "Python expression for calculating duration",
+                "examples": ["input_quantity * 0.5 + 2", "base_time * complexity_factor"]
+              }
+            }
+          },
+          "inputs": {
+            "type": "array",
+            "description": "Required and optional inputs for this operation",
+            "items": {
+              "type": "object",
+              "required": ["name", "type", "required"],
+              "properties": {
+                "name": {"type": "string"},
+                "type": {"type": "string", "examples": ["material", "parameter", "product"]},
+                "required": {"type": "boolean"},
+                "default_value": {},
+                "validation": {
+                  "type": "object",
+                  "description": "Validation rules for this input"
+                }
+              }
+            }
+          },
+          "outputs": {
+            "type": "array",
+            "description": "Outputs produced by this operation",
+            "items": {
+              "type": "object",
+              "required": ["name", "type"],
+              "properties": {
+                "name": {"type": "string"},
+                "type": {"type": "string"},
+                "quantity_formula": {
+                  "type": "string",
+                  "description": "Formula to calculate output quantity"
+                }
+              }
+            }
+          },
+          "failure_modes": {
+            "type": "array",
+            "description": "Ways this operation can fail",
+            "items": {
+              "type": "object",
+              "required": ["name", "probability"],
+              "properties": {
+                "name": {"type": "string"},
+                "probability": {"type": "number", "minimum": 0, "maximum": 1},
+                "conditions": {
+                  "type": "object",
+                  "description": "Conditions that trigger this failure"
+                },
+                "recovery_time": {"type": "number"}
+              }
+            }
+          },
+          "sensor_impacts": {
+            "type": "array",
+            "description": "How this operation affects sensor readings",
+            "items": {
+              "type": "object",
+              "required": ["sensor_name", "impact"],
+              "properties": {
+                "sensor_name": {"type": "string"},
+                "impact": {
+                  "type": "object",
+                  "properties": {
+                    "change": {"type": "number"},
+                    "duration": {"type": "number"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "telemetry_config": {
+      "type": "object",
+      "description": "Configuration for data publishing",
+      "required": ["publish_interval", "metrics"],
+      "properties": {
+        "publish_interval": {
+          "type": "number",
+          "description": "How often to publish telemetry (seconds)",
+          "minimum": 0.1
+        },
+        "sensor_update_interval": {
+          "type": "number",
+          "description": "How often to update sensors (seconds)",
+          "minimum": 0.1
+        },
+        "metrics": {
+          "type": "array",
+          "description": "Additional metrics to calculate and publish",
+          "items": {
+            "type": "object",
+            "required": ["name", "formula"],
+            "properties": {
+              "name": {"type": "string"},
+              "formula": {
+                "type": "string",
+                "description": "Python expression to calculate metric"
+              },
+              "unit": {"type": "string"}
+            }
+          }
+        },
+        "aggregations": {
+          "type": "array",
+          "description": "Time-based aggregations to compute",
+          "items": {
+            "type": "object",
+            "required": ["metric", "window", "function"],
+            "properties": {
+              "metric": {"type": "string"},
+              "window": {"type": "number", "description": "Window size in seconds"},
+              "function": {
+                "type": "string",
+                "enum": ["avg", "min", "max", "sum", "count", "stddev"]
+              }
+            }
+          }
+        }
+      }
+    },
+    "maintenance": {
+      "type": "object",
+      "description": "Maintenance requirements and degradation",
+      "properties": {
+        "schedule": {
+          "type": "object",
+          "properties": {
+            "interval_hours": {"type": "number"},
+            "duration_minutes": {"type": "number"}
+          }
+        },
+        "degradation": {
+          "type": "object",
+          "description": "How machine performance degrades over time",
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "rate": {"type": "number", "description": "Degradation rate per hour"},
+            "affects": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Which sensors/metrics are affected"
+            }
+          }
+        }
+      }
+    },
+    "dependencies": {
+      "type": "array",
+      "description": "External dependencies (materials, utilities, etc.)",
+      "items": {
+        "type": "object",
+        "required": ["name", "type"],
+        "properties": {
+          "name": {"type": "string"},
+          "type": {
+            "type": "string",
+            "enum": ["material", "utility", "tool", "consumable"]
+          },
+          "consumption_rate": {
+            "type": "string",
+            "description": "Formula for consumption rate"
+          }
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Additional metadata",
+      "properties": {
+        "manufacturer": {"type": "string"},
+        "model": {"type": "string"},
+        "year": {"type": "integer"},
+        "cost_per_hour": {"type": "number"},
+        "energy_consumption_kw": {"type": "number"},
+        "tags": {
+          "type": "array",
+          "items": {"type": "string"}
+        }
+      }
+    }
+  }
+}

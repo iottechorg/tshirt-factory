@@ -1,0 +1,73 @@
+version: '3.8'
+
+volumes:
+  postgres_data:
+  timescaledb_data:
+  redis_data:
+
+networks:
+  factory-network:
+    driver: bridge
+
+services:
+  # PostgreSQL for transactional data
+  postgres:
+    image: postgres:15-alpine
+    container_name: factory-postgres
+    environment:
+      POSTGRES_USER: factory_user
+      POSTGRES_PASSWORD: factory_pass
+      POSTGRES_DB: factory_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-postgres.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - factory-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U factory_user -d factory_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # TimescaleDB for time-series sensor data
+  timescaledb:
+    image: timescale/timescaledb:latest-pg15
+    container_name: factory-timescaledb
+    environment:
+      POSTGRES_USER: factory_user
+      POSTGRES_PASSWORD: factory_pass
+      POSTGRES_DB: factory_timeseries
+    ports:
+      - "5433:5432"
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+      - ./init-timescaledb.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - factory-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U factory_user -d factory_timeseries"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for caching and real-time state
+  redis:
+    image: redis:7-alpine
+    container_name: factory-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - factory-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command: redis-server --appendonly yes

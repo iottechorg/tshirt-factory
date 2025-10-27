@@ -1,0 +1,164 @@
+{
+  "machine_type": "pcbassembly",
+  "machine_name": "PCB Assembly Robot",
+  "description": "Automated pick-and-place robot for PCB component assembly",
+  "category": "electronics",
+
+  "sensors": [
+    {
+      "name": "arm_position_x",
+      "type": "float",
+      "unit": "millimeters",
+      "range": {"min": 0.0, "max": 500.0},
+      "initial_value": 250.0,
+      "update_behavior": {
+        "type": "step",
+        "parameters": {"step_size": 10.0, "probability": 0.15}
+      }
+    },
+    {
+      "name": "arm_position_y",
+      "type": "float",
+      "unit": "millimeters",
+      "range": {"min": 0.0, "max": 400.0},
+      "initial_value": 200.0,
+      "update_behavior": {
+        "type": "step",
+        "parameters": {"step_size": 10.0, "probability": 0.15}
+      }
+    },
+    {
+      "name": "vacuum_pressure",
+      "type": "float",
+      "unit": "kpa",
+      "range": {"min": 50.0, "max": 100.0},
+      "initial_value": 75.0,
+      "update_behavior": {
+        "type": "random_walk",
+        "parameters": {"variation": 2.0, "bounds_check": true}
+      },
+      "anomaly_detection": {
+        "warning_min": 55.0,
+        "critical_min": 50.0
+      }
+    },
+    {
+      "name": "placement_accuracy",
+      "type": "float",
+      "unit": "micrometers",
+      "range": {"min": 0.0, "max": 50.0},
+      "initial_value": 10.0,
+      "update_behavior": {
+        "type": "random_walk",
+        "parameters": {"variation": 1.0, "bounds_check": true}
+      },
+      "anomaly_detection": {
+        "warning_max": 30.0,
+        "critical_max": 45.0
+      }
+    },
+    {
+      "name": "components_placed",
+      "type": "integer",
+      "unit": "count",
+      "range": {"min": 0, "max": 100000},
+      "initial_value": 0,
+      "update_behavior": {
+        "type": "static",
+        "parameters": {}
+      }
+    }
+  ],
+
+  "operations": [
+    {
+      "name": "place_component",
+      "display_name": "Place Component",
+      "description": "Pick and place a single component on PCB",
+      "duration": {"type": "fixed", "value": 0.5},
+      "inputs": [
+        {"name": "pcb_board", "type": "material", "required": true},
+        {"name": "component", "type": "material", "required": true},
+        {"name": "position", "type": "parameter", "required": true}
+      ],
+      "outputs": [{"name": "pcb_with_component", "type": "product"}],
+      "failure_modes": [
+        {
+          "name": "misalignment",
+          "probability": 0.01,
+          "conditions": {"placement_accuracy": {"min": 30}},
+          "recovery_time": 10
+        },
+        {
+          "name": "vacuum_loss",
+          "probability": 0.005,
+          "conditions": {"vacuum_pressure": {"max": 60}},
+          "recovery_time": 30
+        }
+      ],
+      "sensor_impacts": [
+        {
+          "sensor_name": "components_placed",
+          "impact": {"change": 1, "duration": 0}
+        }
+      ]
+    },
+    {
+      "name": "inspect_placement",
+      "display_name": "Vision Inspection",
+      "description": "Inspect component placement with vision system",
+      "duration": {"type": "fixed", "value": 1.0},
+      "inputs": [
+        {"name": "pcb_with_components", "type": "material", "required": true}
+      ],
+      "outputs": [{"name": "inspected_pcb", "type": "product"}]
+    }
+  ],
+
+  "telemetry_config": {
+    "publish_interval": 3.0,
+    "sensor_update_interval": 0.5,
+    "metrics": [
+      {
+        "name": "placement_rate",
+        "formula": "components_placed / uptime_hours",
+        "unit": "components_per_hour"
+      },
+      {
+        "name": "accuracy_index",
+        "formula": "(50 - placement_accuracy) / 50 * 100",
+        "unit": "percent"
+      }
+    ],
+    "aggregations": [
+      {
+        "metric": "placement_accuracy",
+        "window": 300,
+        "function": "avg"
+      }
+    ]
+  },
+
+  "maintenance": {
+    "schedule": {"interval_hours": 500, "duration_minutes": 45},
+    "degradation": {
+      "enabled": true,
+      "rate": 0.0005,
+      "affects": ["placement_accuracy"]
+    }
+  },
+
+  "dependencies": [
+    {"name": "compressed_air", "type": "utility", "consumption_rate": "0.5"},
+    {"name": "electricity", "type": "utility", "consumption_rate": "2.0"}
+  ],
+
+  "metadata": {
+    "manufacturer": "TechAssembly Inc",
+    "model": "PA-5000",
+    "year": 2024,
+    "cost_per_hour": 75.0,
+    "energy_consumption_kw": 2.0,
+    "tags": ["electronics", "pcb", "assembly", "precision"]
+  }
+}

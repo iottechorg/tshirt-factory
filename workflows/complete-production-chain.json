@@ -1,0 +1,91 @@
+{
+  "workflow_id": "workflow-complete-production",
+  "workflow_name": "Complete Production Chain with All Machines",
+  "description": "Full production cycle: cutting → sewing → ironing → printing → quality check → folding → packaging",
+  "product_type": "premium-complete",
+  "steps": [
+    {
+      "step_id": "step-1",
+      "machine_type": "cutting",
+      "operation": "precision_cut",
+      "required_inputs": ["material", "cut_size"],
+      "optional_inputs": [],
+      "outputs": ["cut_fabric"],
+      "parallel_group": null,
+      "timeout_seconds": 60,
+      "retry_count": 0
+    },
+    {
+      "step_id": "step-2",
+      "machine_type": "sewing",
+      "operation": "premium_sew",
+      "required_inputs": ["cut_fabric", "stitch_type", "thread_color"],
+      "optional_inputs": [],
+      "outputs": ["sewn_garment"],
+      "parallel_group": null,
+      "timeout_seconds": 90,
+      "retry_count": 0
+    },
+    {
+      "step_id": "step-3",
+      "machine_type": "ironing",
+      "operation": "press_garment",
+      "required_inputs": ["sewn_garment", "iron_temperature_setpoint", "steam_level"],
+      "optional_inputs": [],
+      "outputs": ["pressed_garment"],
+      "parallel_group": null,
+      "timeout_seconds": 60,
+      "retry_count": 0
+    },
+    {
+      "step_id": "step-4",
+      "machine_type": "printing",
+      "operation": "apply_design",
+      "required_inputs": ["pressed_garment", "ink_type"],
+      "optional_inputs": ["design_name"],
+      "outputs": ["printed_garment"],
+      "parallel_group": null,
+      "timeout_seconds": 60,
+      "retry_count": 1
+    },
+    {
+      "step_id": "step-5",
+      "machine_type": "qualitycheck",
+      "operation": "inspect_product",
+      "required_inputs": ["printed_garment"],
+      "optional_inputs": ["quality_standards"],
+      "outputs": ["inspected_garment"],
+      "parallel_group": null,
+      "timeout_seconds": 45,
+      "retry_count": 0
+    },
+    {
+      "step_id": "step-6",
+      "machine_type": "folding",
+      "operation": "fold_for_retail",
+      "required_inputs": ["inspected_garment"],
+      "optional_inputs": ["fold_style"],
+      "outputs": ["folded_garment"],
+      "parallel_group": null,
+      "timeout_seconds": 30,
+      "retry_count": 0
+    },
+    {
+      "step_id": "step-7",
+      "machine_type": "packaging",
+      "operation": "retail_package",
+      "required_inputs": ["folded_garment"],
+      "optional_inputs": ["package_type"],
+      "outputs": ["packaged_product"],
+      "parallel_group": null,
+      "timeout_seconds": 45,
+      "retry_count": 0
+    }
+  ],
+  "metadata": {
+    "estimated_time_minutes": 60,
+    "complexity": "complete",
+    "quality_tier": "retail_ready",
+    "includes_all_machines": true
+  }
+}

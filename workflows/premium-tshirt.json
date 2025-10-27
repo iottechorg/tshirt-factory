@@ -1,0 +1,69 @@
+{
+  "workflow_id": "workflow-premium-tshirt",
+  "workflow_name": "Premium T-Shirt with Quality Check",
+  "description": "High-quality t-shirt with double ironing and quality inspection",
+  "product_type": "premium-tshirt",
+  "steps": [
+    {
+      "step_id": "step-1",
+      "machine_type": "cutting",
+      "operation": "precision_cut",
+      "required_inputs": ["material", "cut_size"],
+      "optional_inputs": ["cut_pattern"],
+      "outputs": ["premium_cut_fabric"],
+      "parallel_group": null,
+      "timeout_seconds": 90,
+      "retry_count": 1
+    },
+    {
+      "step_id": "step-2",
+      "machine_type": "sewing",
+      "operation": "premium_sewing",
+      "required_inputs": ["premium_cut_fabric", "stitch_type", "thread_color"],
+      "optional_inputs": ["reinforcement"],
+      "outputs": ["premium_sewn"],
+      "parallel_group": null,
+      "timeout_seconds": 120,
+      "retry_count": 1
+    },
+    {
+      "step_id": "step-3",
+      "machine_type": "ironing",
+      "operation": "first_press",
+      "required_inputs": ["premium_sewn", "iron_temperature_setpoint", "steam_level"],
+      "optional_inputs": [],
+      "outputs": ["first_ironed"],
+      "parallel_group": null,
+      "timeout_seconds": 60,
+      "retry_count": 0
+    },
+    {
+      "step_id": "step-4",
+      "machine_type": "printing",
+      "operation": "premium_print",
+      "required_inputs": ["first_ironed", "ink_type"],
+      "optional_inputs": ["design_name", "print_quality"],
+      "outputs": ["printed_premium"],
+      "parallel_group": null,
+      "timeout_seconds": 90,
+      "retry_count": 1
+    },
+    {
+      "step_id": "step-5",
+      "machine_type": "ironing",
+      "operation": "final_press",
+      "required_inputs": ["printed_premium", "iron_temperature_setpoint"],
+      "optional_inputs": [],
+      "outputs": ["finished_premium"],
+      "parallel_group": null,
+      "timeout_seconds": 60,
+      "retry_count": 0
+    }
+  ],
+  "metadata": {
+    "estimated_time_minutes": 40,
+    "complexity": "premium",
+    "quality_tier": "high",
+    "price_multiplier": 2.5
+  }
+}

@@ -1,69 +1,228 @@
-<div class="container">
-    <mat-card class="custom-card">
-        <mat-card-header>
-            <mat-card-title>T-Shirt Customizer</mat-card-title>
-        </mat-card-header>
-        <mat-card-content>
-            <div class="selector-container">
-                <div class="options">
-                    <mat-form-field appearance="outline" class="form-group">
-                        <mat-label>Material</mat-label>
-                        <mat-select [(ngModel)]="tshirtOptions.material">
-                            <mat-option value="Cotton">Cotton</mat-option>
-                            <mat-option value="Polyester">Polyester</mat-option>
-                        </mat-select>
-                    </mat-form-field>
-                    <mat-form-field appearance="outline" class="form-group">
-                        <mat-label>Size</mat-label>
-                        <mat-select [(ngModel)]="tshirtOptions.size">
-                            <mat-option value="Small">Small</mat-option>
-                            <mat-option value="Medium">Medium</mat-option>
-                            <mat-option value="Large">Large</mat-option>
-                            <mat-option value="X-Large">X-Large</mat-option>
-                        </mat-select>
-                    </mat-form-field>
-                    <mat-form-field appearance="outline" class="form-group">
-                        <mat-label>Color</mat-label>
-                        <mat-select [(ngModel)]="tshirtOptions.color">
-                            <mat-option value="White">White</mat-option>
-                            <mat-option value="Black">Black</mat-option>
-                            <mat-option value="Red">Red</mat-option>
-                            <mat-option value="Blue">Blue</mat-option>
-                        </mat-select>
-                    </mat-form-field>
-                    <mat-form-field appearance="outline" class="form-group">
-                      <mat-label>Collar</mat-label>
-                        <mat-select [(ngModel)]="tshirtOptions.collar">
-                            <mat-option value="circle">Circle</mat-option>
-                            <mat-option value="v-shape">V-Shape</mat-option>
-                            <mat-option value="polo">Polo</mat-option>
-                        </mat-select>
-                    </mat-form-field>
-                    <mat-form-field appearance="outline" class="form-group">
-                        <mat-label>Extra Keywords</mat-label>
-                        <textarea matInput rows="4" [(ngModel)]="extraKeywords"></textarea>
-                    </mat-form-field>
+<div class="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 py-8 px-4 sm:px-6 lg:px-8">
+  <div class="max-w-7xl mx-auto">
+    <!-- Header -->
+    <div class="text-center mb-12">
+      <h1 class="text-4xl font-bold text-gray-900 mb-2">
+        T-Shirt Customizer
+      </h1>
+      <p class="text-gray-600">Design your perfect t-shirt with AI</p>
+    </div>
+
+    <!-- Main Card -->
+    <div class="bg-white rounded-2xl shadow-xl overflow-hidden">
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 p-8">
+
+        <!-- Left Panel - Options -->
+        <div class="space-y-6">
+          <div class="border-b border-gray-200 pb-4">
+            <h2 class="text-2xl font-semibold text-gray-800 mb-4 flex items-center">
+              <svg class="w-6 h-6 mr-2 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path>
+              </svg>
+              Customize Your Design
+            </h2>
+          </div>
+
+          <!-- Material Selection -->
+          <div class="space-y-2">
+            <label class="block text-sm font-medium text-gray-700">Material</label>
+            <div class="relative">
+              <select [(ngModel)]="tshirtOptions.material"
+                      class="block w-full px-4 py-3 text-base border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 rounded-lg shadow-sm bg-gray-50 hover:bg-white transition-colors">
+                <option value="Cotton">Cotton - Soft & Breathable</option>
+                <option value="Polyester">Polyester - Durable & Quick-Dry</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Size Selection -->
+          <div class="space-y-2">
+            <label class="block text-sm font-medium text-gray-700">Size</label>
+            <div class="grid grid-cols-4 gap-3">
+              <button *ngFor="let size of ['Small', 'Medium', 'Large', 'X-Large']"
+                      (click)="tshirtOptions.size = size"
+                      [class.bg-indigo-600]="tshirtOptions.size === size"
+                      [class.text-white]="tshirtOptions.size === size"
+                      [class.bg-gray-100]="tshirtOptions.size !== size"
+                      [class.text-gray-700]="tshirtOptions.size !== size"
+                      class="py-3 px-4 rounded-lg font-medium hover:shadow-md transition-all duration-200 border-2"
+                      [class.border-indigo-600]="tshirtOptions.size === size"
+                      [class.border-transparent]="tshirtOptions.size !== size">
+                {{ size.substring(0, size === 'X-Large' ? 2 : 1) }}
+              </button>
+            </div>
+          </div>
+
+          <!-- Color Selection -->
+          <div class="space-y-2">
+            <label class="block text-sm font-medium text-gray-700">Color</label>
+            <div class="grid grid-cols-4 gap-3">
+              <button *ngFor="let color of ['White', 'Black', 'Red', 'Blue']"
+                      (click)="tshirtOptions.color = color"
+                      class="relative h-14 rounded-lg border-4 transition-all duration-200 hover:scale-105"
+                      [class.border-indigo-600]="tshirtOptions.color === color"
+                      [class.border-gray-300]="tshirtOptions.color !== color"
+                      [style.backgroundColor]="color.toLowerCase()">
+                <span *ngIf="tshirtOptions.color === color"
+                      class="absolute inset-0 flex items-center justify-center">
+                  <svg class="w-6 h-6" [class.text-white]="color !== 'White'" [class.text-gray-800]="color === 'White'" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+                  </svg>
+                </span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Collar Selection -->
+          <div class="space-y-2">
+            <label class="block text-sm font-medium text-gray-700">Collar Style</label>
+            <div class="grid grid-cols-3 gap-3">
+              <button *ngFor="let collar of [{value: 'circle', label: 'Circle'}, {value: 'v-shape', label: 'V-Shape'}, {value: 'polo', label: 'Polo'}]"
+                      (click)="tshirtOptions.collar = collar.value"
+                      [class.bg-indigo-600]="tshirtOptions.collar === collar.value"
+                      [class.text-white]="tshirtOptions.collar === collar.value"
+                      [class.bg-gray-100]="tshirtOptions.collar !== collar.value"
+                      [class.text-gray-700]="tshirtOptions.collar !== collar.value"
+                      class="py-3 px-4 rounded-lg font-medium hover:shadow-md transition-all duration-200 border-2"
+                      [class.border-indigo-600]="tshirtOptions.collar === collar.value"
+                      [class.border-transparent]="tshirtOptions.collar !== collar.value">
+                {{ collar.label }}
+              </button>
+            </div>
+          </div>
+
+          <!-- Extra Keywords -->
+          <div class="space-y-2">
+            <label class="block text-sm font-medium text-gray-700">
+              Extra Design Keywords
+              <span class="text-xs text-gray-500 ml-1">(optional)</span>
+            </label>
+            <textarea [(ngModel)]="extraKeywords"
+                      rows="3"
+                      placeholder="e.g., vintage style, minimalist design, bold graphics..."
+                      class="block w-full px-4 py-3 text-base border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 rounded-lg shadow-sm resize-none bg-gray-50 hover:bg-white transition-colors"></textarea>
+          </div>
+        </div>
+
+        <!-- Right Panel - Preview -->
+        <div class="space-y-6">
+          <div class="border-b border-gray-200 pb-4">
+            <h2 class="text-2xl font-semibold text-gray-800 mb-4 flex items-center">
+              <svg class="w-6 h-6 mr-2 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+              </svg>
+              Preview
+            </h2>
+          </div>
+
+          <!-- Preview Container -->
+          <div class="flex flex-col items-center space-y-6">
+            <div class="relative w-full max-w-md aspect-square rounded-2xl overflow-hidden shadow-lg border-4 border-gray-200 bg-gradient-to-br from-gray-50 to-gray-100"
+                 [style.borderColor]="tshirtOptions.color.toLowerCase()">
+              <div class="absolute inset-0 flex items-center justify-center"
+                   [style.backgroundColor]="aiGeneratedImage ? 'transparent' : tshirtOptions.color.toLowerCase()">
+                <img *ngIf="aiGeneratedImage"
+                     [src]="aiGeneratedImage"
+                     alt="T-shirt Preview"
+                     class="w-full h-full object-cover" />
+                <div *ngIf="!aiGeneratedImage" class="text-center p-8">
+                  <svg class="w-24 h-24 mx-auto mb-4 opacity-30" [class.text-white]="tshirtOptions.color !== 'White'" [class.text-gray-400]="tshirtOptions.color === 'White'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                  </svg>
+                  <p class="font-medium" [class.text-white]="tshirtOptions.color !== 'White'" [class.text-gray-600]="tshirtOptions.color === 'White'">
+                    Click "Generate AI Image" to see your design
+                  </p>
                 </div>
-                <div class="tshirt-preview">
-                    <div class="image-container" [style.backgroundColor]="tshirtOptions.color">
-                        <img *ngIf="aiGeneratedImage" [src]="aiGeneratedImage" alt="T-shirt Preview"
-                            style="width: 300px; height: auto;" />
-                    </div>
-                   
-                    <button mat-raised-button color="primary" (click)="generateAiImage()">Generate AI Image</button>
-                     <div *ngIf="apiLimitReached" class="error-message" style="color: red; margin-top: 10px;">
-                        {{ apiLimitMessage }}
-                    </div>
-                     <div *ngIf="apiLimitMessage && !apiLimitReached" class="error-message" style="color: red; margin-top: 10px;">
-                        {{ apiLimitMessage }}
-                    </div>
-                </div>
+              </div>
             </div>
 
-            <button mat-raised-button color="accent" (click)="placeOrder()">Place Order</button>
-             <button mat-raised-button color="primary" (click)="navigateToMachineObservation()">
-                Machine & Production Observation
+            <!-- Generate Button -->
+            <button (click)="generateAiImage()"
+                    class="w-full max-w-md py-4 px-6 bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-200 flex items-center justify-center space-x-2">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+              </svg>
+              <span>Generate AI Image</span>
             </button>
-        </mat-card-content>
-    </mat-card>
+
+            <!-- Error Messages -->
+            <div *ngIf="apiLimitReached || apiLimitMessage"
+                 class="w-full max-w-md p-4 rounded-lg"
+                 [class.bg-red-50]="apiLimitReached"
+                 [class.bg-yellow-50]="!apiLimitReached && apiLimitMessage">
+              <div class="flex items-start">
+                <svg class="w-5 h-5 mt-0.5 mr-3" [class.text-red-600]="apiLimitReached" [class.text-yellow-600]="!apiLimitReached" fill="currentColor" viewBox="0 0 20 20">
+                  <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
+                </svg>
+                <p [class.text-red-800]="apiLimitReached" [class.text-yellow-800]="!apiLimitReached" class="text-sm font-medium">
+                  {{ apiLimitMessage }}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="bg-gray-50 px-8 py-6 border-t border-gray-200">
+        <div class="flex flex-col sm:flex-row gap-4 justify-between items-center">
+          <button (click)="placeOrder()"
+                  class="w-full sm:w-auto py-4 px-8 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-200 flex items-center justify-center space-x-2">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path>
+            </svg>
+            <span>Place Order</span>
+          </button>
+
+          <button (click)="navigateToMachineObservation()"
+                  class="w-full sm:w-auto py-4 px-8 bg-white text-indigo-600 font-semibold rounded-xl border-2 border-indigo-600 hover:bg-indigo-50 transition-all duration-200 flex items-center justify-center space-x-2">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+            </svg>
+            <span>View Factory Status</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Info Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
+      <div class="bg-white rounded-xl shadow-md p-6 border-t-4 border-indigo-500">
+        <div class="flex items-center space-x-3 mb-3">
+          <div class="p-2 bg-indigo-100 rounded-lg">
+            <svg class="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+            </svg>
+          </div>
+          <h3 class="font-semibold text-gray-800">AI-Powered</h3>
+        </div>
+        <p class="text-sm text-gray-600">Generate unique designs using advanced AI technology</p>
+      </div>
+
+      <div class="bg-white rounded-xl shadow-md p-6 border-t-4 border-purple-500">
+        <div class="flex items-center space-x-3 mb-3">
+          <div class="p-2 bg-purple-100 rounded-lg">
+            <svg class="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"></path>
+            </svg>
+          </div>
+          <h3 class="font-semibold text-gray-800">Customizable</h3>
+        </div>
+        <p class="text-sm text-gray-600">Choose from multiple materials, colors, and styles</p>
+      </div>
+
+      <div class="bg-white rounded-xl shadow-md p-6 border-t-4 border-green-500">
+        <div class="flex items-center space-x-3 mb-3">
+          <div class="p-2 bg-green-100 rounded-lg">
+            <svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+          </div>
+          <h3 class="font-semibold text-gray-800">Quality</h3>
+        </div>
+        <p class="text-sm text-gray-600">Premium materials and professional manufacturing</p>
+      </div>
+    </div>
+  </div>
 </div>

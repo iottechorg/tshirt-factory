@@ -1,0 +1,359 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Factory Configuration Schema",
+  "description": "Complete factory configuration including machines, workflows, and production parameters",
+  "type": "object",
+  "required": ["factory_id", "factory_name", "factory_type", "machines", "workflows", "production_config"],
+  "properties": {
+    "factory_id": {
+      "type": "string",
+      "description": "Unique identifier for this factory configuration",
+      "pattern": "^[a-z0-9-]+$"
+    },
+    "factory_name": {
+      "type": "string",
+      "description": "Human-readable factory name"
+    },
+    "factory_type": {
+      "type": "string",
+      "description": "Type of factory (defines domain)",
+      "examples": ["textile", "automotive", "electronics", "food_processing", "pharmaceuticals"]
+    },
+    "description": {
+      "type": "string",
+      "description": "Description of what this factory produces"
+    },
+    "machines": {
+      "type": "array",
+      "description": "Machine instances deployed in this factory",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["machine_id", "machine_type", "template_file"],
+        "properties": {
+          "machine_id": {
+            "type": "string",
+            "description": "Unique ID for this machine instance",
+            "pattern": "^[a-z0-9-]+$"
+          },
+          "machine_type": {
+            "type": "string",
+            "description": "Type of machine (references template)"
+          },
+          "template_file": {
+            "type": "string",
+            "description": "Path to machine template JSON file"
+          },
+          "instance_name": {
+            "type": "string",
+            "description": "Display name for this specific instance"
+          },
+          "location": {
+            "type": "object",
+            "description": "Physical location in factory",
+            "properties": {
+              "zone": {"type": "string"},
+              "line": {"type": "string"},
+              "position": {"type": "string"}
+            }
+          },
+          "overrides": {
+            "type": "object",
+            "description": "Override default values from template",
+            "properties": {
+              "sensors": {
+                "type": "object",
+                "description": "Override sensor configurations",
+                "additionalProperties": {
+                  "type": "object",
+                  "description": "Sensor-specific overrides"
+                }
+              },
+              "telemetry_config": {
+                "type": "object",
+                "description": "Override telemetry settings"
+              },
+              "failure_rate": {
+                "type": "number",
+                "description": "Override default failure rate"
+              }
+            }
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether this machine is active",
+            "default": true
+          }
+        }
+      }
+    },
+    "workflows": {
+      "type": "array",
+      "description": "Production workflows available in this factory",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["workflow_id", "workflow_name", "product_type", "steps"],
+        "properties": {
+          "workflow_id": {
+            "type": "string",
+            "pattern": "^[a-z0-9-]+$"
+          },
+          "workflow_name": {
+            "type": "string"
+          },
+          "product_type": {
+            "type": "string",
+            "description": "Type of product this workflow produces"
+          },
+          "description": {
+            "type": "string"
+          },
+          "steps": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["step_id", "machine_type", "operation"],
+              "properties": {
+                "step_id": {
+                  "type": "string"
+                },
+                "step_name": {
+                  "type": "string"
+                },
+                "machine_type": {
+                  "type": "string",
+                  "description": "Type of machine needed for this step"
+                },
+                "machine_id": {
+                  "type": "string",
+                  "description": "Specific machine instance (optional)"
+                },
+                "operation": {
+                  "type": "string",
+                  "description": "Operation to perform"
+                },
+                "parameters": {
+                  "type": "object",
+                  "description": "Operation parameters",
+                  "additionalProperties": true
+                },
+                "required_inputs": {
+                  "type": "array",
+                  "items": {"type": "string"}
+                },
+                "optional_inputs": {
+                  "type": "array",
+                  "items": {"type": "string"}
+                },
+                "outputs": {
+                  "type": "array",
+                  "items": {"type": "string"}
+                },
+                "parallel_group": {
+                  "type": "integer",
+                  "description": "Steps with same group ID run in parallel"
+                },
+                "timeout_seconds": {
+                  "type": "number",
+                  "default": 60
+                },
+                "retry_count": {
+                  "type": "integer",
+                  "default": 0
+                },
+                "conditions": {
+                  "type": "array",
+                  "description": "Conditions that must be met to execute this step",
+                  "items": {
+                    "type": "object",
+                    "required": ["type", "expression"],
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": ["sensor", "output", "quality", "custom"]
+                      },
+                      "expression": {"type": "string"}
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "metadata": {
+            "type": "object",
+            "properties": {
+              "estimated_time_minutes": {"type": "number"},
+              "complexity": {"type": "string"},
+              "quality_tier": {"type": "string"},
+              "cost_estimate": {"type": "number"}
+            }
+          }
+        }
+      }
+    },
+    "production_config": {
+      "type": "object",
+      "description": "Production simulation configuration",
+      "required": ["mode", "target_rate"],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["continuous", "batch", "on_demand", "scheduled"],
+          "description": "Production mode"
+        },
+        "target_rate": {
+          "type": "object",
+          "description": "Target production rate",
+          "properties": {
+            "value": {"type": "number"},
+            "unit": {
+              "type": "string",
+              "enum": ["units_per_hour", "units_per_day", "batches_per_day"]
+            }
+          }
+        },
+        "shift_schedule": {
+          "type": "object",
+          "description": "Operating schedule",
+          "properties": {
+            "shifts_per_day": {"type": "integer"},
+            "hours_per_shift": {"type": "number"},
+            "days_per_week": {"type": "integer"}
+          }
+        },
+        "quality_control": {
+          "type": "object",
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "inspection_rate": {
+              "type": "number",
+              "description": "Fraction of products to inspect (0.0-1.0)"
+            },
+            "rejection_threshold": {
+              "type": "number",
+              "description": "Quality score below which products are rejected"
+            }
+          }
+        },
+        "inventory": {
+          "type": "object",
+          "description": "Inventory simulation",
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "materials": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["name", "initial_quantity"],
+                "properties": {
+                  "name": {"type": "string"},
+                  "initial_quantity": {"type": "number"},
+                  "reorder_point": {"type": "number"},
+                  "reorder_quantity": {"type": "number"},
+                  "unit": {"type": "string"}
+                }
+              }
+            }
+          }
+        },
+        "performance_tracking": {
+          "type": "object",
+          "properties": {
+            "track_oee": {
+              "type": "boolean",
+              "description": "Track Overall Equipment Effectiveness"
+            },
+            "track_cycle_time": {"type": "boolean"},
+            "track_downtime": {"type": "boolean"},
+            "kpis": {
+              "type": "array",
+              "description": "Custom KPIs to track",
+              "items": {
+                "type": "object",
+                "required": ["name", "formula"],
+                "properties": {
+                  "name": {"type": "string"},
+                  "formula": {"type": "string"},
+                  "unit": {"type": "string"},
+                  "target": {"type": "number"}
+                }
+              }
+            }
+          }
+        },
+        "simulation": {
+          "type": "object",
+          "description": "Simulation-specific settings",
+          "properties": {
+            "time_scale": {
+              "type": "number",
+              "description": "Time multiplier (1.0 = real-time, 10.0 = 10x faster)",
+              "default": 1.0
+            },
+            "randomness": {
+              "type": "number",
+              "description": "Overall randomness factor (0.0-1.0)",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "enable_anomalies": {
+              "type": "boolean",
+              "description": "Whether to simulate anomalies/failures"
+            },
+            "anomaly_frequency": {
+              "type": "number",
+              "description": "How often anomalies occur (per hour)",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "mqtt_config": {
+      "type": "object",
+      "description": "MQTT broker configuration",
+      "properties": {
+        "broker": {"type": "string"},
+        "port": {"type": "integer"},
+        "site_id": {"type": "string"},
+        "topic_prefix": {"type": "string"},
+        "qos": {"type": "integer", "minimum": 0, "maximum": 2}
+      }
+    },
+    "database_config": {
+      "type": "object",
+      "description": "Database configuration",
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "type": {
+          "type": "string",
+          "enum": ["postgresql", "mysql", "sqlite", "timescaledb"]
+        },
+        "connection": {
+          "type": "object",
+          "properties": {
+            "host": {"type": "string"},
+            "port": {"type": "integer"},
+            "database": {"type": "string"},
+            "user": {"type": "string"},
+            "password": {"type": "string"}
+          }
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "version": {"type": "string"},
+        "created_date": {"type": "string", "format": "date-time"},
+        "author": {"type": "string"},
+        "tags": {
+          "type": "array",
+          "items": {"type": "string"}
+        }
+      }
+    }
+  }
+}

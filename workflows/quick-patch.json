@@ -1,0 +1,35 @@
+{
+  "workflow_id": "workflow-quick-patch",
+  "workflow_name": "Quick Patch Production",
+  "description": "Fast production for simple patches - cutting and printing only",
+  "product_type": "patch",
+  "steps": [
+    {
+      "step_id": "step-1",
+      "machine_type": "cutting",
+      "operation": "cut_patch",
+      "required_inputs": ["material", "cut_size"],
+      "optional_inputs": [],
+      "outputs": ["cut_patch"],
+      "parallel_group": null,
+      "timeout_seconds": 30,
+      "retry_count": 0
+    },
+    {
+      "step_id": "step-2",
+      "machine_type": "printing",
+      "operation": "print_patch",
+      "required_inputs": ["cut_patch", "ink_type"],
+      "optional_inputs": ["design_name"],
+      "outputs": ["finished_patch"],
+      "parallel_group": null,
+      "timeout_seconds": 45,
+      "retry_count": 0
+    }
+  ],
+  "metadata": {
+    "estimated_time_minutes": 10,
+    "complexity": "simple",
+    "fast_track": true
+  }
+}

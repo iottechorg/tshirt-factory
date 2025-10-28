@@ -14,6 +14,7 @@ It creates:
 import json
 import os
 import sys
+import shutil
 from pathlib import Path
 from typing import Dict, List, Any
 import argparse
@@ -397,6 +398,358 @@ class {class_name}Machine(BaseMachine):
 
         return json.dumps(compose, indent=2)
 
+    def copy_shared_module(self, factory_dir: Path):
+        """Copy shared module (base_machine, mqtt_client, etc.) to generated factory"""
+        print("Copying shared module...")
+
+        # Source: root/shared directory
+        src_shared = Path(__file__).parent.parent / "shared"
+
+        if not src_shared.exists():
+            print(f"  ⚠️  Warning: shared module not found at {src_shared}")
+            return
+
+        # Destination: factory/services/shared
+        dest_shared = factory_dir / "services" / "shared"
+        dest_shared.parent.mkdir(parents=True, exist_ok=True)
+
+        if dest_shared.exists():
+            shutil.rmtree(dest_shared)
+
+        shutil.copytree(src_shared, dest_shared)
+        print(f"  ✓ Copied shared module to {dest_shared}")
+
+    def copy_orchestrator(self, factory_dir: Path):
+        """Copy production orchestrator service to generated factory"""
+        print("Copying production orchestrator...")
+
+        src_orch = Path(__file__).parent.parent / "production-orchestrator"
+
+        if not src_orch.exists():
+            print(f"  ⚠️  Warning: orchestrator not found at {src_orch}")
+            return
+
+        dest_orch = factory_dir / "services" / "orchestrator"
+        dest_orch.parent.mkdir(parents=True, exist_ok=True)
+
+        if dest_orch.exists():
+            shutil.rmtree(dest_orch)
+
+        shutil.copytree(src_orch, dest_orch)
+        print(f"  ✓ Copied orchestrator to {dest_orch}")
+
+    def copy_monitoring_service(self, factory_dir: Path):
+        """Copy monitoring service to generated factory"""
+        print("Copying monitoring service...")
+
+        src_mon = Path(__file__).parent.parent / "monitoring-service"
+
+        if not src_mon.exists():
+            print(f"  ⚠️  Warning: monitoring-service not found at {src_mon}")
+            return
+
+        dest_mon = factory_dir / "services" / "monitoring"
+        dest_mon.parent.mkdir(parents=True, exist_ok=True)
+
+        if dest_mon.exists():
+            shutil.rmtree(dest_mon)
+
+        shutil.copytree(src_mon, dest_mon)
+        print(f"  ✓ Copied monitoring service to {dest_mon}")
+
+    def copy_cloud_connectors(self, factory_dir: Path):
+        """Copy cloud connector services (optional) to generated factory"""
+        print("Copying cloud connectors...")
+
+        src_cloud = Path(__file__).parent.parent / "cloud-connectors"
+
+        if not src_cloud.exists():
+            print(f"  ⚠️  Warning: cloud-connectors not found at {src_cloud}")
+            return
+
+        dest_cloud = factory_dir / "services" / "cloud-connectors"
+        dest_cloud.parent.mkdir(parents=True, exist_ok=True)
+
+        if dest_cloud.exists():
+            shutil.rmtree(dest_cloud)
+
+        shutil.copytree(src_cloud, dest_cloud)
+        print(f"  ✓ Copied cloud connectors to {dest_cloud}")
+
+    def generate_machine_service_wrapper(self, machine_type: str, factory_dir: Path):
+        """Generate machine_service.py wrapper for each machine"""
+        machine_service_code = f'''#!/usr/bin/env python3
+"""
+Machine Service Wrapper for {machine_type}
+Auto-generated service runner
+"""
+import sys
+import os
+import time
+import logging
+import threading
+
+# Add paths
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../shared'))
+
+from shared.mqtt_client import MQTTClientWrapper
+from shared.database import DatabaseManager
+from {machine_type}_machine import {machine_type.title().replace('_', '')}Machine
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+
+class MachineService:
+    """Service wrapper for machine"""
+
+    def __init__(self):
+        self.machine_id = os.getenv('MACHINE_ID', '{machine_type}-01')
+        self.machine_type = os.getenv('MACHINE_TYPE', '{machine_type}')
+        self.factory_site_id = os.getenv('FACTORY_SITE_ID', 'site-01')
+
+        # MQTT configuration
+        self.mqtt_broker = os.getenv('MQTT_BROKER', 'localhost')
+        self.mqtt_port = int(os.getenv('MQTT_PORT', 1883))
+
+        # Initialize machine
+        self.machine = {machine_type.title().replace('_', '')}Machine(
+            machine_id=self.machine_id,
+            machine_name=f"{{self.machine_type}}-{{self.machine_id}}"
+        )
+
+        # Initialize MQTT client
+        self.mqtt_client = MQTTClientWrapper(
+            client_id=f"{{self.factory_site_id}}-{{self.machine_id}}",
+            broker=self.mqtt_broker,
+            port=self.mqtt_port
+        )
+
+        # Topics
+        self.telemetry_topic = f"factory/{{self.factory_site_id}}/machines/{{self.machine_id}}/telemetry"
+        self.status_topic = f"factory/{{self.factory_site_id}}/machines/{{self.machine_id}}/status"
+        self.command_topic = f"factory/{{self.factory_site_id}}/machines/{{self.machine_id}}/command"
+        self.operation_topic = f"factory/{{self.factory_site_id}}/machines/{{self.machine_id}}/operation"
+
+        self.running = False
+
+    def on_command(self, topic, payload):
+        """Handle incoming commands"""
+        try:
+            command = payload.get('command')
+            logger.info(f"Received command: {{command}}")
+
+            if command == 'start':
+                self.machine.start()
+            elif command == 'stop':
+                self.machine.stop()
+            elif command == 'set_failure_rate':
+                rate = payload.get('rate', 0.01)
+                self.machine.set_failure_rate(rate)
+
+        except Exception as e:
+            logger.error(f"Error handling command: {{e}}")
+
+    def on_operation(self, topic, payload):
+        """Handle operation requests"""
+        try:
+            logger.info(f"Processing operation: {{payload}}")
+            result = self.machine.process_operation(payload)
+
+            # Publish operation result
+            result_topic = f"factory/{{self.factory_site_id}}/machines/{{self.machine_id}}/operation/result"
+            self.mqtt_client.publish(result_topic, result)
+
+        except Exception as e:
+            logger.error(f"Error processing operation: {{e}}")
+
+    def publish_telemetry(self):
+        """Publish telemetry data periodically"""
+        while self.running:
+            try:
+                # Update sensors
+                self.machine.update_sensors()
+
+                # Get telemetry
+                telemetry = self.machine.get_telemetry()
+
+                # Publish to MQTT
+                self.mqtt_client.publish(self.telemetry_topic, telemetry)
+
+                # Publish status
+                status = self.machine.get_status()
+                self.mqtt_client.publish(self.status_topic, status)
+
+                # Sleep interval
+                time.sleep(self.machine.telemetry_interval)
+
+            except Exception as e:
+                logger.error(f"Error publishing telemetry: {{e}}")
+                time.sleep(5)
+
+    def start(self):
+        """Start the machine service"""
+        logger.info(f"Starting machine service: {{self.machine_id}}")
+
+        # Connect MQTT
+        self.mqtt_client.connect()
+
+        # Subscribe to topics
+        self.mqtt_client.subscribe(self.command_topic, self.on_command)
+        self.mqtt_client.subscribe(self.operation_topic, self.on_operation)
+
+        # Start machine
+        self.machine.start()
+        self.running = True
+
+        # Start telemetry thread
+        telemetry_thread = threading.Thread(target=self.publish_telemetry, daemon=True)
+        telemetry_thread.start()
+
+        logger.info(f"Machine service started: {{self.machine_id}}")
+
+        # Keep running
+        try:
+            while self.running:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            logger.info("Shutting down...")
+            self.stop()
+
+    def stop(self):
+        """Stop the machine service"""
+        self.running = False
+        self.machine.stop()
+        self.mqtt_client.disconnect()
+        logger.info("Machine service stopped")
+
+
+if __name__ == "__main__":
+    service = MachineService()
+    service.start()
+'''
+
+        service_file = factory_dir / "services" / "machines" / machine_type / "machine_service.py"
+        service_file.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(service_file, 'w') as f:
+            f.write(machine_service_code)
+
+        # Make it executable
+        os.chmod(service_file, 0o755)
+
+    def generate_machine_dockerfile(self, machine_type: str, factory_dir: Path):
+        """Generate Dockerfile for machine service"""
+        dockerfile_content = f'''FROM python:3.9-slim
+
+WORKDIR /app
+
+# Install dependencies
+COPY services/shared/requirements.txt /app/shared-requirements.txt
+RUN pip install --no-cache-dir -r /app/shared-requirements.txt
+
+# Copy shared module
+COPY services/shared /app/shared
+
+# Copy machine code
+COPY services/machines/{machine_type} /app/machine
+
+WORKDIR /app/machine
+
+# Run machine service
+CMD ["python3", "machine_service.py"]
+'''
+
+        dockerfile = factory_dir / "services" / "machines" / machine_type / "Dockerfile"
+        dockerfile.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(dockerfile, 'w') as f:
+            f.write(dockerfile_content)
+
+    def generate_mqtt_config(self, factory_dir: Path):
+        """Generate mosquitto.conf for MQTT broker"""
+        mqtt_config = '''# Mosquitto Configuration
+listener 1883
+protocol mqtt
+
+listener 9001
+protocol websockets
+
+allow_anonymous true
+
+# Persistence
+persistence true
+persistence_location /mosquitto/data/
+
+# Logging
+log_dest file /mosquitto/log/mosquitto.log
+log_dest stdout
+log_type all
+'''
+
+        mqtt_dir = factory_dir / "mqtt"
+        mqtt_dir.mkdir(exist_ok=True)
+
+        config_file = mqtt_dir / "mosquitto.conf"
+        with open(config_file, 'w') as f:
+            f.write(mqtt_config)
+
+        print(f"  ✓ Generated MQTT config")
+
+    def update_docker_compose_with_services(self, compose: Dict) -> Dict:
+        """Add orchestrator and monitoring services to docker-compose"""
+        factory_id = self.config['factory_id']
+        network = f"{factory_id}-network"
+
+        # Add orchestrator
+        compose['services']['orchestrator'] = {
+            'build': {
+                'context': './services',
+                'dockerfile': 'orchestrator/Dockerfile'
+            },
+            'container_name': f"{factory_id}-orchestrator",
+            'environment': {
+                'FACTORY_ID': factory_id,
+                'MQTT_BROKER': 'mqttbroker',
+                'MQTT_PORT': 1883,
+                'POSTGRES_HOST': 'postgres',
+                'POSTGRES_DB': self.config['database_config']['connection']['database'],
+                'POSTGRES_USER': 'factory_user',
+                'POSTGRES_PASSWORD': 'factory_pass'
+            },
+            'depends_on': ['mqttbroker', 'postgres'],
+            'networks': [network],
+            'restart': 'unless-stopped',
+            'volumes': ['./workflows:/app/workflows:ro']
+        }
+
+        # Add monitoring service
+        compose['services']['monitoring'] = {
+            'build': {
+                'context': './services',
+                'dockerfile': 'monitoring/Dockerfile'
+            },
+            'container_name': f"{factory_id}-monitoring",
+            'environment': {
+                'FACTORY_ID': factory_id,
+                'MQTT_BROKER': 'mqttbroker',
+                'MQTT_PORT': 1883,
+                'POSTGRES_HOST': 'postgres',
+                'POSTGRES_DB': self.config['database_config']['connection']['database'],
+                'POSTGRES_USER': 'factory_user',
+                'POSTGRES_PASSWORD': 'factory_pass'
+            },
+            'depends_on': ['mqttbroker', 'postgres'],
+            'networks': [network],
+            'restart': 'unless-stopped'
+        }
+
+        return compose
+
     def generate_factory(self):
         """Generate complete factory from configuration"""
         factory_id = self.config['factory_id']
@@ -410,10 +763,12 @@ class {class_name}Machine(BaseMachine):
 
         # Create output directories
         factory_dir = self.output_dir / factory_id
-        machines_dir = factory_dir / "machines"
+        services_dir = factory_dir / "services"
+        machines_dir = services_dir / "machines"
         workflows_dir = factory_dir / "workflows"
 
         factory_dir.mkdir(parents=True, exist_ok=True)
+        services_dir.mkdir(exist_ok=True)
         machines_dir.mkdir(exist_ok=True)
         workflows_dir.mkdir(exist_ok=True)
 
@@ -440,6 +795,12 @@ class {class_name}Machine(BaseMachine):
             with open(machine_file, 'w') as f:
                 f.write(machine_code)
 
+            # Generate machine service wrapper
+            self.generate_machine_service_wrapper(machine_type, factory_dir)
+
+            # Generate Dockerfile for machine
+            self.generate_machine_dockerfile(machine_type, factory_dir)
+
         # Generate workflows
         print("\nGenerating workflows...")
         for workflow in self.config['workflows']:
@@ -450,9 +811,25 @@ class {class_name}Machine(BaseMachine):
             with open(workflow_file, 'w') as f:
                 json.dump(workflow, f, indent=2)
 
+        # Copy shared services
+        print("\nCopying shared services...")
+        self.copy_shared_module(factory_dir)
+        self.copy_orchestrator(factory_dir)
+        self.copy_monitoring_service(factory_dir)
+        self.copy_cloud_connectors(factory_dir)
+
+        # Generate MQTT configuration
+        print("\nGenerating MQTT configuration...")
+        self.generate_mqtt_config(factory_dir)
+
         # Generate docker-compose
         print("\nGenerating docker-compose configuration...")
-        compose_yaml = self.generate_docker_compose()
+        compose_dict = json.loads(self.generate_docker_compose())
+
+        # Add orchestrator and monitoring services
+        compose_dict = self.update_docker_compose_with_services(compose_dict)
+
+        compose_yaml = json.dumps(compose_dict, indent=2)
         compose_file = factory_dir / "docker-compose.yml"
         with open(compose_file, 'w') as f:
             f.write(compose_yaml)

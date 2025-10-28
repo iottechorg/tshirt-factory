@@ -1,0 +1,200 @@
+{
+  "version": "3.8",
+  "volumes": {
+    "mosquitto_data": null,
+    "mosquitto_log": null,
+    "postgres_data": null,
+    "timescaledb_data": null,
+    "redis_data": null
+  },
+  "networks": {
+    "tshirt-factory-001-network": {
+      "driver": "bridge"
+    }
+  },
+  "services": {
+    "mqttbroker": {
+      "image": "eclipse-mosquitto:latest",
+      "container_name": "tshirt-factory-001-mqtt",
+      "ports": [
+        "31883:1883",
+        "9001:9001"
+      ],
+      "volumes": [
+        "./mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf",
+        "mosquitto_data:/mosquitto/data",
+        "mosquitto_log:/mosquitto/log"
+      ],
+      "networks": [
+        "tshirt-factory-001-network"
+      ],
+      "restart": "unless-stopped"
+    },
+    "postgres": {
+      "image": "postgres:15-alpine",
+      "container_name": "tshirt-factory-001-postgres",
+      "environment": {
+        "POSTGRES_USER": "factory_user",
+        "POSTGRES_PASSWORD": "factory_pass",
+        "POSTGRES_DB": "tshirt_factory"
+      },
+      "ports": [
+        "5432:5432"
+      ],
+      "volumes": [
+        "postgres_data:/var/lib/postgresql/data"
+      ],
+      "networks": [
+        "tshirt-factory-001-network"
+      ],
+      "restart": "unless-stopped"
+    },
+    "cutting-01": {
+      "build": {
+        "context": "./services",
+        "dockerfile": "machines/cutting/Dockerfile"
+      },
+      "container_name": "cutting-01",
+      "environment": {
+        "MACHINE_ID": "cutting-01",
+        "MACHINE_TYPE": "cutting",
+        "MQTT_BROKER": "mqttbroker",
+        "MQTT_PORT": 1883,
+        "FACTORY_SITE_ID": "tshirt-factory-001",
+        "MACHINE_SENSOR_UPDATE_INTERVAL": 2,
+        "MACHINE_DATA_PUBLISH_INTERVAL": 5,
+        "SERVICE_NAME": "cutting-01"
+      },
+      "depends_on": [
+        "mqttbroker"
+      ],
+      "networks": [
+        "tshirt-factory-001-network"
+      ],
+      "restart": "unless-stopped"
+    },
+    "sewing-01": {
+      "build": {
+        "context": "./services",
+        "dockerfile": "machines/sewing/Dockerfile"
+      },
+      "container_name": "sewing-01",
+      "environment": {
+        "MACHINE_ID": "sewing-01",
+        "MACHINE_TYPE": "sewing",
+        "MQTT_BROKER": "mqttbroker",
+        "MQTT_PORT": 1883,
+        "FACTORY_SITE_ID": "tshirt-factory-001",
+        "MACHINE_SENSOR_UPDATE_INTERVAL": 2,
+        "MACHINE_DATA_PUBLISH_INTERVAL": 5,
+        "SERVICE_NAME": "sewing-01"
+      },
+      "depends_on": [
+        "mqttbroker"
+      ],
+      "networks": [
+        "tshirt-factory-001-network"
+      ],
+      "restart": "unless-stopped"
+    },
+    "qualitycheck-01": {
+      "build": {
+        "context": "./services",
+        "dockerfile": "machines/qualitycheck/Dockerfile"
+      },
+      "container_name": "qualitycheck-01",
+      "environment": {
+        "MACHINE_ID": "qualitycheck-01",
+        "MACHINE_TYPE": "qualitycheck",
+        "MQTT_BROKER": "mqttbroker",
+        "MQTT_PORT": 1883,
+        "FACTORY_SITE_ID": "tshirt-factory-001",
+        "MACHINE_SENSOR_UPDATE_INTERVAL": 2,
+        "MACHINE_DATA_PUBLISH_INTERVAL": 5,
+        "SERVICE_NAME": "qualitycheck-01"
+      },
+      "depends_on": [
+        "mqttbroker"
+      ],
+      "networks": [
+        "tshirt-factory-001-network"
+      ],
+      "restart": "unless-stopped"
+    },
+    "packaging-01": {
+      "build": {
+        "context": "./services",
+        "dockerfile": "machines/packaging/Dockerfile"
+      },
+      "container_name": "packaging-01",
+      "environment": {
+        "MACHINE_ID": "packaging-01",
+        "MACHINE_TYPE": "packaging",
+        "MQTT_BROKER": "mqttbroker",
+        "MQTT_PORT": 1883,
+        "FACTORY_SITE_ID": "tshirt-factory-001",
+        "MACHINE_SENSOR_UPDATE_INTERVAL": 2,
+        "MACHINE_DATA_PUBLISH_INTERVAL": 5,
+        "SERVICE_NAME": "packaging-01"
+      },
+      "depends_on": [
+        "mqttbroker"
+      ],
+      "networks": [
+        "tshirt-factory-001-network"
+      ],
+      "restart": "unless-stopped"
+    },
+    "orchestrator": {
+      "build": {
+        "context": "./services",
+        "dockerfile": "orchestrator/Dockerfile"
+      },
+      "container_name": "tshirt-factory-001-orchestrator",
+      "environment": {
+        "FACTORY_ID": "tshirt-factory-001",
+        "MQTT_BROKER": "mqttbroker",
+        "MQTT_PORT": 1883,
+        "POSTGRES_HOST": "postgres",
+        "POSTGRES_DB": "tshirt_factory",
+        "POSTGRES_USER": "factory_user",
+        "POSTGRES_PASSWORD": "factory_pass"
+      },
+      "depends_on": [
+        "mqttbroker",
+        "postgres"
+      ],
+      "networks": [
+        "tshirt-factory-001-network"
+      ],
+      "restart": "unless-stopped",
+      "volumes": [
+        "./workflows:/app/workflows:ro"
+      ]
+    },
+    "monitoring": {
+      "build": {
+        "context": "./services",
+        "dockerfile": "monitoring/Dockerfile"
+      },
+      "container_name": "tshirt-factory-001-monitoring",
+      "environment": {
+        "FACTORY_ID": "tshirt-factory-001",
+        "MQTT_BROKER": "mqttbroker",
+        "MQTT_PORT": 1883,
+        "POSTGRES_HOST": "postgres",
+        "POSTGRES_DB": "tshirt_factory",
+        "POSTGRES_USER": "factory_user",
+        "POSTGRES_PASSWORD": "factory_pass"
+      },
+      "depends_on": [
+        "mqttbroker",
+        "postgres"
+      ],
+      "networks": [
+        "tshirt-factory-001-network"
+      ],
+      "restart": "unless-stopped"
+    }
+  }
+}

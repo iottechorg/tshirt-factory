@@ -1,0 +1,294 @@
+{
+  "machine_type": "packaging",
+  "machine_name": "Automated Packaging System",
+  "description": "High-speed automated packaging and labeling system for t-shirts",
+  "manufacturer": "PackTech Automation",
+  "model": "PKG-8000",
+
+  "sensors": [
+    {
+      "name": "sealing_temperature",
+      "type": "float",
+      "unit": "celsius",
+      "description": "Heat sealer temperature",
+      "range": {
+        "min": 130.0,
+        "max": 190.0
+      },
+      "initial_value": 160.0,
+      "update_behavior": {
+        "type": "random_walk",
+        "parameters": {
+          "variation": 2.5
+        }
+      },
+      "alert_conditions": [
+        {
+          "type": "threshold",
+          "operator": "<",
+          "value": 145.0,
+          "severity": "warning",
+          "message": "Sealing temperature too low"
+        },
+        {
+          "type": "threshold",
+          "operator": ">",
+          "value": 180.0,
+          "severity": "warning",
+          "message": "Sealing temperature too high"
+        }
+      ]
+    },
+    {
+      "name": "conveyor_speed",
+      "type": "float",
+      "unit": "m/s",
+      "description": "Conveyor belt speed",
+      "range": {
+        "min": 0.4,
+        "max": 1.4
+      },
+      "initial_value": 0.85,
+      "update_behavior": {
+        "type": "random_walk",
+        "parameters": {
+          "variation": 0.08
+        }
+      }
+    },
+    {
+      "name": "label_dispenser_level",
+      "type": "float",
+      "unit": "percentage",
+      "description": "Remaining label stock percentage",
+      "range": {
+        "min": 0.0,
+        "max": 100.0
+      },
+      "initial_value": 85.0,
+      "update_behavior": {
+        "type": "step",
+        "parameters": {
+          "step_size": -0.5,
+          "interval": 10
+        }
+      },
+      "alert_conditions": [
+        {
+          "type": "threshold",
+          "operator": "<",
+          "value": 20.0,
+          "severity": "warning",
+          "message": "Label stock low"
+        },
+        {
+          "type": "threshold",
+          "operator": "<",
+          "value": 5.0,
+          "severity": "critical",
+          "message": "Label stock critically low"
+        }
+      ]
+    },
+    {
+      "name": "packaging_rate",
+      "type": "float",
+      "unit": "items/min",
+      "description": "Packaging throughput rate",
+      "range": {
+        "min": 15.0,
+        "max": 45.0
+      },
+      "initial_value": 30.0,
+      "update_behavior": {
+        "type": "random_walk",
+        "parameters": {
+          "variation": 2.0
+        }
+      }
+    },
+    {
+      "name": "package_quality_score",
+      "type": "float",
+      "unit": "score",
+      "description": "Package seal quality score",
+      "range": {
+        "min": 0.0,
+        "max": 100.0
+      },
+      "initial_value": 95.0,
+      "update_behavior": {
+        "type": "sine_wave",
+        "parameters": {
+          "amplitude": 3.0,
+          "frequency": 0.1,
+          "offset": 95.0
+        }
+      }
+    }
+  ],
+
+  "operations": [
+    {
+      "name": "package_tshirt",
+      "description": "Package t-shirt with poly bag and label",
+      "duration": {
+        "type": "fixed",
+        "value": 4.0
+      },
+      "inputs": [
+        {
+          "name": "inspected_tshirt",
+          "type": "object",
+          "required": true,
+          "description": "Quality-approved t-shirt"
+        },
+        {
+          "name": "packaging_type",
+          "type": "string",
+          "required": false,
+          "default": "standard",
+          "description": "Type of packaging (standard, premium, gift)"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "packaged_tshirt",
+          "type": "object",
+          "description": "Fully packaged t-shirt ready for shipment"
+        },
+        {
+          "name": "package_label",
+          "type": "object",
+          "description": "Attached package label with barcode"
+        }
+      ],
+      "failure_modes": [
+        {
+          "type": "random",
+          "probability": 0.02,
+          "condition": null,
+          "description": "Random packaging failure"
+        },
+        {
+          "type": "conditional",
+          "probability": 0.35,
+          "condition": "sealing_temperature < 150 or sealing_temperature > 175",
+          "description": "Improper sealing temperature causes poor seal"
+        },
+        {
+          "type": "conditional",
+          "probability": 0.90,
+          "condition": "label_dispenser_level < 5",
+          "description": "Insufficient labels cause packaging failure"
+        },
+        {
+          "type": "conditional",
+          "probability": 0.15,
+          "condition": "package_quality_score < 85",
+          "description": "Low quality score triggers repackaging"
+        }
+      ],
+      "sensor_impacts": [
+        {
+          "sensor": "sealing_temperature",
+          "change": 3.0,
+          "duration": 4
+        },
+        {
+          "sensor": "label_dispenser_level",
+          "change": -1.0,
+          "duration": 1
+        },
+        {
+          "sensor": "packaging_rate",
+          "change": 2.0,
+          "duration": 1
+        }
+      ]
+    },
+    {
+      "name": "refill_labels",
+      "description": "Refill label dispenser",
+      "duration": {
+        "type": "fixed",
+        "value": 30.0
+      },
+      "inputs": [
+        {
+          "name": "label_roll",
+          "type": "object",
+          "required": true,
+          "description": "New roll of labels"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "refill_complete",
+          "type": "boolean",
+          "description": "Refill operation status"
+        }
+      ],
+      "failure_modes": [
+        {
+          "type": "random",
+          "probability": 0.01,
+          "condition": null,
+          "description": "Label refill failure"
+        }
+      ],
+      "sensor_impacts": [
+        {
+          "sensor": "label_dispenser_level",
+          "change": 100.0,
+          "duration": 1
+        }
+      ]
+    }
+  ],
+
+  "telemetry_config": {
+    "publish_interval": 5.0,
+    "metrics": [
+      {
+        "name": "packages_per_hour",
+        "formula": "packaging_rate * 60",
+        "unit": "packages/hour"
+      },
+      {
+        "name": "sealing_efficiency",
+        "formula": "100 * (1 - abs(sealing_temperature - 160) / 50)",
+        "unit": "percentage"
+      },
+      {
+        "name": "throughput_efficiency",
+        "formula": "(packaging_rate / 45) * 100",
+        "unit": "percentage"
+      },
+      {
+        "name": "overall_packaging_score",
+        "formula": "(package_quality_score + sealing_efficiency + throughput_efficiency) / 3",
+        "unit": "score"
+      }
+    ],
+    "aggregations": {
+      "enabled": true,
+      "window_seconds": 60,
+      "functions": ["avg", "min", "max", "sum"]
+    }
+  },
+
+  "maintenance": {
+    "required_interval_hours": 250,
+    "degradation_rate": 0.0006,
+    "mtbf_hours": 2800,
+    "mttr_hours": 1.5
+  },
+
+  "metadata": {
+    "version": "1.0.0",
+    "created_date": "2025-10-27",
+    "tags": ["packaging", "labeling", "sealing", "tshirt", "automation"],
+    "use_cases": ["tshirt_production", "final_packaging", "labeling"]
+  }
+}

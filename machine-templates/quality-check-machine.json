@@ -1,0 +1,257 @@
+{
+  "machine_type": "qualitycheck",
+  "machine_name": "Automated Quality Inspection System",
+  "description": "AI-powered vision inspection system for t-shirt quality control",
+  "manufacturer": "VisionTech Solutions",
+  "model": "QC-AI-7000",
+
+  "sensors": [
+    {
+      "name": "camera_temperature",
+      "type": "float",
+      "unit": "celsius",
+      "description": "Inspection camera sensor temperature",
+      "range": {
+        "min": 20.0,
+        "max": 40.0
+      },
+      "initial_value": 30.0,
+      "update_behavior": {
+        "type": "random_walk",
+        "parameters": {
+          "variation": 0.5
+        }
+      },
+      "alert_conditions": [
+        {
+          "type": "threshold",
+          "operator": ">",
+          "value": 37.0,
+          "severity": "warning",
+          "message": "Camera overheating"
+        }
+      ]
+    },
+    {
+      "name": "light_intensity",
+      "type": "float",
+      "unit": "lux",
+      "description": "Inspection lighting level",
+      "range": {
+        "min": 750.0,
+        "max": 1250.0
+      },
+      "initial_value": 1000.0,
+      "update_behavior": {
+        "type": "random_walk",
+        "parameters": {
+          "variation": 20.0
+        }
+      },
+      "alert_conditions": [
+        {
+          "type": "threshold",
+          "operator": "<",
+          "value": 800.0,
+          "severity": "warning",
+          "message": "Insufficient lighting for inspection"
+        }
+      ]
+    },
+    {
+      "name": "scan_speed",
+      "type": "float",
+      "unit": "items/s",
+      "description": "Inspection scan speed",
+      "range": {
+        "min": 0.3,
+        "max": 2.0
+      },
+      "initial_value": 1.0,
+      "update_behavior": {
+        "type": "random_walk",
+        "parameters": {
+          "variation": 0.1
+        }
+      }
+    },
+    {
+      "name": "defect_detection_rate",
+      "type": "float",
+      "unit": "percentage",
+      "description": "AI model defect detection accuracy",
+      "range": {
+        "min": 0.92,
+        "max": 0.995
+      },
+      "initial_value": 0.97,
+      "update_behavior": {
+        "type": "random_walk",
+        "parameters": {
+          "variation": 0.005
+        }
+      }
+    },
+    {
+      "name": "inspection_score",
+      "type": "float",
+      "unit": "score",
+      "description": "Current item quality score",
+      "range": {
+        "min": 0.0,
+        "max": 100.0
+      },
+      "initial_value": 95.0,
+      "update_behavior": {
+        "type": "random_walk",
+        "parameters": {
+          "variation": 3.0
+        }
+      }
+    }
+  ],
+
+  "operations": [
+    {
+      "name": "inspect_quality",
+      "description": "Perform automated quality inspection",
+      "duration": {
+        "type": "fixed",
+        "value": 3.0
+      },
+      "inputs": [
+        {
+          "name": "sewn_tshirt",
+          "type": "object",
+          "required": true,
+          "description": "Sewn t-shirt from sewing machine"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "inspected_tshirt",
+          "type": "object",
+          "description": "Quality-approved t-shirt"
+        },
+        {
+          "name": "quality_report",
+          "type": "object",
+          "description": "Detailed inspection report"
+        }
+      ],
+      "failure_modes": [
+        {
+          "type": "random",
+          "probability": 0.05,
+          "condition": null,
+          "description": "Random quality failure"
+        },
+        {
+          "type": "conditional",
+          "probability": 0.30,
+          "condition": "light_intensity < 850",
+          "description": "Poor lighting causes inspection errors"
+        },
+        {
+          "type": "conditional",
+          "probability": 0.20,
+          "condition": "inspection_score < 80",
+          "description": "Low quality score triggers rejection"
+        }
+      ],
+      "sensor_impacts": [
+        {
+          "sensor": "camera_temperature",
+          "change": 1.5,
+          "duration": 3
+        },
+        {
+          "sensor": "inspection_score",
+          "change": -2.0,
+          "duration": 1
+        }
+      ]
+    },
+    {
+      "name": "detailed_inspection",
+      "description": "Perform detailed manual-assisted inspection",
+      "duration": {
+        "type": "fixed",
+        "value": 10.0
+      },
+      "inputs": [
+        {
+          "name": "sewn_tshirt",
+          "type": "object",
+          "required": true,
+          "description": "T-shirt requiring detailed inspection"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "inspected_tshirt",
+          "type": "object",
+          "description": "Fully inspected t-shirt"
+        },
+        {
+          "name": "detailed_report",
+          "type": "object",
+          "description": "Comprehensive quality report"
+        }
+      ],
+      "failure_modes": [
+        {
+          "type": "random",
+          "probability": 0.01,
+          "condition": null,
+          "description": "Rare detailed inspection failure"
+        }
+      ]
+    }
+  ],
+
+  "telemetry_config": {
+    "publish_interval": 5.0,
+    "metrics": [
+      {
+        "name": "inspections_per_hour",
+        "formula": "scan_speed * 3600",
+        "unit": "inspections/hour"
+      },
+      {
+        "name": "quality_pass_rate",
+        "formula": "(inspection_score / 100) * defect_detection_rate * 100",
+        "unit": "percentage"
+      },
+      {
+        "name": "ai_confidence",
+        "formula": "defect_detection_rate * 100",
+        "unit": "percentage"
+      },
+      {
+        "name": "lighting_quality",
+        "formula": "(light_intensity / 1250) * 100",
+        "unit": "percentage"
+      }
+    ],
+    "aggregations": {
+      "enabled": true,
+      "window_seconds": 60,
+      "functions": ["avg", "min", "max"]
+    }
+  },
+
+  "maintenance": {
+    "required_interval_hours": 300,
+    "degradation_rate": 0.0005,
+    "mtbf_hours": 3000,
+    "mttr_hours": 1
+  },
+
+  "metadata": {
+    "version": "1.0.0",
+    "created_date": "2025-10-27",
+    "tags": ["quality", "inspection", "ai", "vision", "tshirt"],
+    "use_cases": ["tshirt_production", "quality_control", "defect_detection"]
+  }
+}

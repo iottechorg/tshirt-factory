@@ -1,0 +1,189 @@
+{
+  "machine_type": "cutting",
+  "machine_name": "Fabric Cutting Machine",
+  "description": "Industrial fabric cutting machine for t-shirt production",
+  "manufacturer": "TextileMach Industries",
+  "model": "CUT-3000",
+
+  "sensors": [
+    {
+      "name": "blade_temperature",
+      "type": "float",
+      "unit": "celsius",
+      "description": "Cutting blade temperature",
+      "range": {
+        "min": 20.0,
+        "max": 45.0
+      },
+      "initial_value": 30.0,
+      "update_behavior": {
+        "type": "random_walk",
+        "parameters": {
+          "variation": 0.5
+        }
+      },
+      "alert_conditions": [
+        {
+          "type": "threshold",
+          "operator": ">",
+          "value": 40.0,
+          "severity": "warning",
+          "message": "Blade temperature high"
+        }
+      ]
+    },
+    {
+      "name": "blade_pressure",
+      "type": "float",
+      "unit": "bar",
+      "description": "Cutting blade pressure",
+      "range": {
+        "min": 0.5,
+        "max": 2.0
+      },
+      "initial_value": 1.25,
+      "update_behavior": {
+        "type": "random_walk",
+        "parameters": {
+          "variation": 0.1
+        }
+      },
+      "alert_conditions": [
+        {
+          "type": "threshold",
+          "operator": "<",
+          "value": 0.8,
+          "severity": "warning",
+          "message": "Blade pressure low"
+        }
+      ]
+    },
+    {
+      "name": "cut_speed",
+      "type": "float",
+      "unit": "m/s",
+      "description": "Cutting speed",
+      "range": {
+        "min": 0.05,
+        "max": 0.5
+      },
+      "initial_value": 0.2,
+      "update_behavior": {
+        "type": "random_walk",
+        "parameters": {
+          "variation": 0.02
+        }
+      }
+    },
+    {
+      "name": "motor_current",
+      "type": "float",
+      "unit": "ampere",
+      "description": "Motor current draw",
+      "range": {
+        "min": 0.3,
+        "max": 1.5
+      },
+      "initial_value": 0.85,
+      "update_behavior": {
+        "type": "random_walk",
+        "parameters": {
+          "variation": 0.2
+        }
+      }
+    }
+  ],
+
+  "operations": [
+    {
+      "name": "cut_fabric",
+      "description": "Cut fabric according to pattern",
+      "duration": {
+        "type": "fixed",
+        "value": 5.0
+      },
+      "inputs": [
+        {
+          "name": "material",
+          "type": "string",
+          "required": true,
+          "description": "Fabric material type"
+        },
+        {
+          "name": "cut_size",
+          "type": "string",
+          "required": true,
+          "description": "Size pattern (S, M, L, XL)"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "cut_pieces",
+          "type": "object",
+          "description": "Cut fabric pieces ready for sewing"
+        }
+      ],
+      "failure_modes": [
+        {
+          "type": "random",
+          "probability": 0.02,
+          "condition": null,
+          "description": "Random cutting failure"
+        },
+        {
+          "type": "conditional",
+          "probability": 0.15,
+          "condition": "blade_temperature > 40",
+          "description": "High temperature causes poor cut quality"
+        }
+      ],
+      "sensor_impacts": [
+        {
+          "sensor": "blade_temperature",
+          "change": 2.0,
+          "duration": 10
+        },
+        {
+          "sensor": "motor_current",
+          "change": 0.3,
+          "duration": 5
+        }
+      ]
+    }
+  ],
+
+  "telemetry_config": {
+    "publish_interval": 5.0,
+    "metrics": [
+      {
+        "name": "cuts_per_minute",
+        "formula": "60 / operation_duration",
+        "unit": "cuts/min"
+      },
+      {
+        "name": "blade_efficiency",
+        "formula": "(blade_pressure / 2.0) * (1 - (blade_temperature - 30) / 20)",
+        "unit": "percentage"
+      }
+    ],
+    "aggregations": {
+      "enabled": true,
+      "window_seconds": 60,
+      "functions": ["avg", "min", "max"]
+    }
+  },
+
+  "maintenance": {
+    "required_interval_hours": 168,
+    "degradation_rate": 0.001,
+    "mtbf_hours": 2000,
+    "mttr_hours": 2
+  },
+
+  "metadata": {
+    "version": "1.0.0",
+    "created_date": "2025-10-27",
+    "tags": ["textile", "cutting", "tshirt", "fabric"],
+    "use_cases": ["tshirt_production", "garment_manufacturing"]
+  }
+}

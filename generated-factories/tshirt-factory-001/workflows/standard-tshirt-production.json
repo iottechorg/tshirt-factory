@@ -1,0 +1,105 @@
+{
+  "workflow_id": "standard-tshirt-production",
+  "workflow_name": "Standard T-Shirt Production",
+  "product_type": "tshirt",
+  "description": "Complete t-shirt manufacturing workflow from cutting to packaging",
+  "steps": [
+    {
+      "step_id": "step-1",
+      "step_name": "Cut fabric pieces",
+      "machine_type": "cutting",
+      "operation": "cut_fabric",
+      "parameters": {
+        "material": "cotton",
+        "cut_size": "M"
+      },
+      "required_inputs": [
+        "fabric_roll"
+      ],
+      "outputs": [
+        "cut_pieces"
+      ],
+      "timeout_seconds": 30,
+      "retry": {
+        "enabled": true,
+        "max_attempts": 2,
+        "delay_seconds": 5
+      }
+    },
+    {
+      "step_id": "step-2",
+      "step_name": "Sew t-shirt pieces",
+      "machine_type": "sewing",
+      "operation": "sew_pieces",
+      "parameters": {
+        "stitch_type": "standard"
+      },
+      "required_inputs": [
+        "cut_pieces"
+      ],
+      "outputs": [
+        "sewn_tshirt"
+      ],
+      "timeout_seconds": 45,
+      "retry": {
+        "enabled": true,
+        "max_attempts": 2,
+        "delay_seconds": 10
+      }
+    },
+    {
+      "step_id": "step-3",
+      "step_name": "Quality inspection",
+      "machine_type": "qualitycheck",
+      "operation": "inspect_quality",
+      "required_inputs": [
+        "sewn_tshirt"
+      ],
+      "outputs": [
+        "inspected_tshirt",
+        "quality_report"
+      ],
+      "timeout_seconds": 20,
+      "conditions": [
+        {
+          "type": "quality",
+          "expression": "inspection_score >= 85",
+          "on_failure": "retry"
+        }
+      ],
+      "retry": {
+        "enabled": true,
+        "max_attempts": 1,
+        "delay_seconds": 5
+      }
+    },
+    {
+      "step_id": "step-4",
+      "step_name": "Package t-shirt",
+      "machine_type": "packaging",
+      "operation": "package_tshirt",
+      "parameters": {
+        "packaging_type": "standard"
+      },
+      "required_inputs": [
+        "inspected_tshirt"
+      ],
+      "outputs": [
+        "packaged_tshirt",
+        "package_label"
+      ],
+      "timeout_seconds": 30,
+      "retry": {
+        "enabled": true,
+        "max_attempts": 2,
+        "delay_seconds": 5
+      }
+    }
+  ],
+  "metadata": {
+    "estimated_time_minutes": 5,
+    "complexity": "medium",
+    "quality_tier": "standard",
+    "cost_estimate": 8.5
+  }
+}

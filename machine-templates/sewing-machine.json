@@ -1,0 +1,213 @@
+{
+  "machine_type": "sewing",
+  "machine_name": "Industrial Sewing Machine",
+  "description": "High-speed industrial sewing machine for t-shirt assembly",
+  "manufacturer": "TextileMach Industries",
+  "model": "SEW-5000",
+
+  "sensors": [
+    {
+      "name": "needle_temperature",
+      "type": "float",
+      "unit": "celsius",
+      "description": "Sewing needle temperature",
+      "range": {
+        "min": 25.0,
+        "max": 45.0
+      },
+      "initial_value": 33.0,
+      "update_behavior": {
+        "type": "random_walk",
+        "parameters": {
+          "variation": 0.5
+        }
+      },
+      "alert_conditions": [
+        {
+          "type": "threshold",
+          "operator": ">",
+          "value": 42.0,
+          "severity": "warning",
+          "message": "Needle temperature high"
+        }
+      ]
+    },
+    {
+      "name": "thread_tension",
+      "type": "float",
+      "unit": "newton",
+      "description": "Thread tension control",
+      "range": {
+        "min": 0.4,
+        "max": 1.2
+      },
+      "initial_value": 0.8,
+      "update_behavior": {
+        "type": "random_walk",
+        "parameters": {
+          "variation": 0.05
+        }
+      },
+      "alert_conditions": [
+        {
+          "type": "threshold",
+          "operator": "<",
+          "value": 0.5,
+          "severity": "warning",
+          "message": "Thread tension low - risk of loose stitches"
+        },
+        {
+          "type": "threshold",
+          "operator": ">",
+          "value": 1.1,
+          "severity": "warning",
+          "message": "Thread tension high - risk of thread break"
+        }
+      ]
+    },
+    {
+      "name": "stitch_speed",
+      "type": "float",
+      "unit": "stitches/s",
+      "description": "Stitching speed",
+      "range": {
+        "min": 0.15,
+        "max": 0.5
+      },
+      "initial_value": 0.275,
+      "update_behavior": {
+        "type": "random_walk",
+        "parameters": {
+          "variation": 0.025
+        }
+      }
+    },
+    {
+      "name": "motor_current",
+      "type": "float",
+      "unit": "ampere",
+      "description": "Motor current draw",
+      "range": {
+        "min": 0.3,
+        "max": 1.3
+      },
+      "initial_value": 0.75,
+      "update_behavior": {
+        "type": "random_walk",
+        "parameters": {
+          "variation": 0.15
+        }
+      }
+    }
+  ],
+
+  "operations": [
+    {
+      "name": "sew_pieces",
+      "description": "Sew fabric pieces together",
+      "duration": {
+        "type": "fixed",
+        "value": 8.0
+      },
+      "inputs": [
+        {
+          "name": "cut_pieces",
+          "type": "object",
+          "required": true,
+          "description": "Cut fabric pieces from cutting machine"
+        },
+        {
+          "name": "stitch_type",
+          "type": "string",
+          "required": false,
+          "default": "standard",
+          "description": "Type of stitching pattern"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "sewn_tshirt",
+          "type": "object",
+          "description": "Sewn t-shirt ready for quality check"
+        }
+      ],
+      "failure_modes": [
+        {
+          "type": "random",
+          "probability": 0.03,
+          "condition": null,
+          "description": "Random sewing failure"
+        },
+        {
+          "type": "conditional",
+          "probability": 0.25,
+          "condition": "thread_tension < 0.5",
+          "description": "Low thread tension causes loose stitches"
+        },
+        {
+          "type": "conditional",
+          "probability": 0.20,
+          "condition": "needle_temperature > 40",
+          "description": "High needle temperature affects stitch quality"
+        }
+      ],
+      "sensor_impacts": [
+        {
+          "sensor": "needle_temperature",
+          "change": 3.0,
+          "duration": 8
+        },
+        {
+          "sensor": "motor_current",
+          "change": 0.4,
+          "duration": 8
+        },
+        {
+          "sensor": "thread_tension",
+          "change": -0.05,
+          "duration": 8
+        }
+      ]
+    }
+  ],
+
+  "telemetry_config": {
+    "publish_interval": 5.0,
+    "metrics": [
+      {
+        "name": "stitches_per_minute",
+        "formula": "stitch_speed * 60",
+        "unit": "stitches/min"
+      },
+      {
+        "name": "thread_quality_score",
+        "formula": "100 * (1 - abs(thread_tension - 0.8) / 0.4)",
+        "unit": "percentage"
+      },
+      {
+        "name": "sewing_efficiency",
+        "formula": "(stitch_speed / 0.5) * (thread_quality_score / 100)",
+        "unit": "percentage"
+      }
+    ],
+    "aggregations": {
+      "enabled": true,
+      "window_seconds": 60,
+      "functions": ["avg", "min", "max"]
+    }
+  },
+
+  "maintenance": {
+    "required_interval_hours": 200,
+    "degradation_rate": 0.0008,
+    "mtbf_hours": 2500,
+    "mttr_hours": 1.5
+  },
+
+  "metadata": {
+    "version": "1.0.0",
+    "created_date": "2025-10-27",
+    "tags": ["textile", "sewing", "tshirt", "stitching"],
+    "use_cases": ["tshirt_production", "garment_manufacturing"]
+  }
+}

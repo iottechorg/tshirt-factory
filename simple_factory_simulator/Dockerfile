@@ -9,7 +9,6 @@ COPY . /app
 
 
 RUN pip install --no-cache-dir -r requirements.txt
-RUN pip install --force-reinstall werkzeug==2.1.2
 
 # Use Gunicorn to serve the application in production
 #CMD gunicorn -w 4 -b 0.0.0.0:$WEBAPP_PORT --log-level 'debug' app:app

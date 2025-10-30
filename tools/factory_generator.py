@@ -18,6 +18,8 @@ import shutil
 from pathlib import Path
 from typing import Dict, List, Any
 import argparse
+import yaml
+
 
 
 class FactoryGenerator:
@@ -121,7 +123,8 @@ import time
 import math
 from typing import Dict, Any
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../shared'))
+sys.path.insert(0, '/app/shared')
+
 from base_machine import BaseMachine
 
 
@@ -165,7 +168,7 @@ class {class_name}Machine(BaseMachine):
     def _initialize_sensors(self) -> Dict[str, Any]:
         """Initialize sensor values from template"""
         return {{
-{chr(10).join(sensors_init)}
+  {',\n'.join(sensors_init)}
         }}
 
     def update_sensors(self):
@@ -320,7 +323,7 @@ class {class_name}Machine(BaseMachine):
         return class_code
 
     def generate_docker_compose(self) -> str:
-        """Generate docker-compose configuration for factory"""
+        """Generate docker-compose configuration for factory in YAML format"""
         compose = {
             'version': '3.8',
             'volumes': {
@@ -367,7 +370,7 @@ class {class_name}Machine(BaseMachine):
             'restart': 'unless-stopped'
         }
 
-        # Add machines
+        # Add machines - FIXED: build context is now "." instead of "./services"
         for machine in self.config['machines']:
             if not machine.get('enabled', True):
                 continue
@@ -377,8 +380,8 @@ class {class_name}Machine(BaseMachine):
 
             compose['services'][machine_id] = {
                 'build': {
-                    'context': './services',
-                    'dockerfile': f"machines/{machine_type}/Dockerfile"
+                    'context': '.',  # CHANGED: from './services' to '.'
+                    'dockerfile': f"services/machines/{machine_type}/Dockerfile"  # CHANGED: added "services/" prefix
                 },
                 'container_name': machine_id,
                 'environment': {
@@ -396,17 +399,23 @@ class {class_name}Machine(BaseMachine):
                 'restart': 'unless-stopped'
             }
 
-        return json.dumps(compose, indent=2)
-
+        # Convert to YAML string
+        return yaml.dump(compose, default_flow_style=False, sort_keys=False)
+        
     def copy_shared_module(self, factory_dir: Path):
         """Copy shared module (base_machine, mqtt_client, etc.) to generated factory"""
         print("Copying shared module...")
 
-        # Source: root/shared directory
+        # Source: root/shared directory (correct path)
         src_shared = Path(__file__).parent.parent / "shared"
-
+        
+        # Alternative: if the script is run from project root
+        if not src_shared.exists():
+            src_shared = Path("shared")
+        
         if not src_shared.exists():
             print(f"  ⚠️  Warning: shared module not found at {src_shared}")
+            print(f"  Looking for: {src_shared.absolute()}")
             return
 
         # Destination: factory/services/shared
@@ -417,7 +426,13 @@ class {class_name}Machine(BaseMachine):
             shutil.rmtree(dest_shared)
 
         shutil.copytree(src_shared, dest_shared)
-        print(f"  ✓ Copied shared module to {dest_shared}")
+        print(f"  ✓ Copied shared module from {src_shared} to {dest_shared}")
+        
+        # Verify the copy worked
+        if (dest_shared / "mqtt_client.py").exists():
+            print(f"  ✓ Verified: mqtt_client.py copied successfully")
+        else:
+            print(f"  ❌ Error: mqtt_client.py not found after copy")
 
     def copy_orchestrator(self, factory_dir: Path):
         """Copy production orchestrator service to generated factory"""
@@ -489,12 +504,11 @@ import time
 import logging
 import threading
 
-# Add paths
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../shared'))
+# Add paths to include shared module
+sys.path.insert(0, '/app/shared')
+sys.path.insert(0, '/app')
 
 from shared.mqtt_client import MQTTClientWrapper
-from shared.database import DatabaseManager
 from {machine_type}_machine import {machine_type.title().replace('_', '')}Machine
 
 logging.basicConfig(
@@ -642,33 +656,6 @@ if __name__ == "__main__":
         # Make it executable
         os.chmod(service_file, 0o755)
 
-    def generate_machine_dockerfile(self, machine_type: str, factory_dir: Path):
-        """Generate Dockerfile for machine service"""
-        dockerfile_content = f'''FROM python:3.9-slim
-
-WORKDIR /app
-
-# Install dependencies
-COPY services/shared/requirements.txt /app/shared-requirements.txt
-RUN pip install --no-cache-dir -r /app/shared-requirements.txt
-
-# Copy shared module
-COPY services/shared /app/shared
-
-# Copy machine code
-COPY services/machines/{machine_type} /app/machine
-
-WORKDIR /app/machine
-
-# Run machine service
-CMD ["python3", "machine_service.py"]
-'''
-
-        dockerfile = factory_dir / "services" / "machines" / machine_type / "Dockerfile"
-        dockerfile.parent.mkdir(parents=True, exist_ok=True)
-
-        with open(dockerfile, 'w') as f:
-            f.write(dockerfile_content)
 
     def generate_mqtt_config(self, factory_dir: Path):
         """Generate mosquitto.conf for MQTT broker"""
@@ -705,11 +692,11 @@ log_type all
         factory_id = self.config['factory_id']
         network = f"{factory_id}-network"
 
-        # Add orchestrator
+        # Add orchestrator - FIXED build context
         compose['services']['orchestrator'] = {
             'build': {
-                'context': './services',
-                'dockerfile': 'orchestrator/Dockerfile'
+                'context': '.',  # CHANGED: from './services' to '.'
+                'dockerfile': 'services/orchestrator/Dockerfile'  # CHANGED: added "services/" prefix
             },
             'container_name': f"{factory_id}-orchestrator",
             'environment': {
@@ -727,11 +714,11 @@ log_type all
             'volumes': ['./workflows:/app/workflows:ro']
         }
 
-        # Add monitoring service
+        # Add monitoring service - FIXED build context
         compose['services']['monitoring'] = {
             'build': {
-                'context': './services',
-                'dockerfile': 'monitoring/Dockerfile'
+                'context': '.',  # CHANGED: from './services' to '.'
+                'dockerfile': 'services/monitoring/Dockerfile'  # CHANGED: added "services/" prefix
             },
             'container_name': f"{factory_id}-monitoring",
             'environment': {
@@ -750,6 +737,90 @@ log_type all
 
         return compose
 
+    def generate_machine_dockerfile(self, machine_type: str, factory_dir: Path):
+        """Generate Dockerfile for machine service with correct paths"""
+        dockerfile_content = f'''FROM python:3.9-slim
+
+WORKDIR /app
+
+# Install dependencies
+COPY services/shared/requirements.txt /app/shared-requirements.txt
+RUN pip install --no-cache-dir -r /app/shared-requirements.txt
+
+# Copy shared module
+COPY services/shared /app/shared
+
+# Copy machine code
+COPY services/machines/{machine_type} /app/machine
+
+WORKDIR /app/machine
+
+# Run machine service
+CMD ["python3", "machine_service.py"]
+'''
+
+        dockerfile = factory_dir / "services" / "machines" / machine_type / "Dockerfile"
+        dockerfile.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(dockerfile, 'w') as f:
+            f.write(dockerfile_content)
+
+    def generate_orchestrator_dockerfile(self, factory_dir: Path):
+        """Generate Dockerfile for orchestrator service"""
+        dockerfile_content = '''FROM python:3.9-slim
+
+WORKDIR /app
+
+# Install dependencies
+COPY services/shared/requirements.txt /app/shared-requirements.txt
+RUN pip install --no-cache-dir -r /app/shared-requirements.txt
+
+# Copy shared module
+COPY services/shared /app/shared
+
+# Copy orchestrator code
+COPY services/orchestrator /app/orchestrator
+
+WORKDIR /app/orchestrator
+
+# Run orchestrator
+CMD ["python3", "orchestrator.py"]
+'''
+
+        dockerfile = factory_dir / "services" / "orchestrator" / "Dockerfile"
+        dockerfile.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(dockerfile, 'w') as f:
+            f.write(dockerfile_content)
+
+    def generate_monitoring_dockerfile(self, factory_dir: Path):
+        """Generate Dockerfile for monitoring service"""
+        dockerfile_content = '''FROM python:3.9-slim
+
+WORKDIR /app
+
+# Install dependencies
+COPY services/shared/requirements.txt /app/shared-requirements.txt
+RUN pip install --no-cache-dir -r /app/shared-requirements.txt
+
+# Copy shared module
+COPY services/shared /app/shared
+
+# Copy monitoring code
+COPY services/monitoring /app/monitoring
+
+WORKDIR /app/monitoring
+
+# Run monitoring service
+CMD ["python3", "monitoring_service.py"]
+'''
+
+        dockerfile = factory_dir / "services" / "monitoring" / "Dockerfile"
+        dockerfile.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(dockerfile, 'w') as f:
+            f.write(dockerfile_content)
+
     def generate_factory(self):
         """Generate complete factory from configuration"""
         factory_id = self.config['factory_id']
@@ -766,16 +837,25 @@ log_type all
         services_dir = factory_dir / "services"
         machines_dir = services_dir / "machines"
         workflows_dir = factory_dir / "workflows"
+        mqtt_dir = factory_dir / "mqtt"
 
+        # Clean and create directories
+        if factory_dir.exists():
+            shutil.rmtree(factory_dir)
+        
         factory_dir.mkdir(parents=True, exist_ok=True)
         services_dir.mkdir(exist_ok=True)
         machines_dir.mkdir(exist_ok=True)
         workflows_dir.mkdir(exist_ok=True)
+        mqtt_dir.mkdir(exist_ok=True)
 
-        # Generate machine classes
-        print("Generating machine classes...")
+        # Generate machine classes and Dockerfiles
+        print("Generating machine classes and Dockerfiles...")
         unique_types = set()
         for machine in self.config['machines']:
+            if not machine.get('enabled', True):
+                continue
+                
             machine_type = machine['machine_type']
             if machine_type in unique_types:
                 continue
@@ -818,21 +898,50 @@ log_type all
         self.copy_monitoring_service(factory_dir)
         self.copy_cloud_connectors(factory_dir)
 
+        # Generate service Dockerfiles
+        print("\nGenerating service Dockerfiles...")
+        self.generate_orchestrator_dockerfile(factory_dir)
+        self.generate_monitoring_dockerfile(factory_dir)
+
         # Generate MQTT configuration
         print("\nGenerating MQTT configuration...")
         self.generate_mqtt_config(factory_dir)
 
-        # Generate docker-compose
+        # Generate docker-compose with proper build context
         print("\nGenerating docker-compose configuration...")
-        compose_dict = json.loads(self.generate_docker_compose())
-
+        
+        # Generate base compose configuration
+        compose_yaml = self.generate_docker_compose()
+        compose_dict = yaml.safe_load(compose_yaml)
+        
         # Add orchestrator and monitoring services
         compose_dict = self.update_docker_compose_with_services(compose_dict)
-
-        compose_yaml = json.dumps(compose_dict, indent=2)
+        
+        # Write as proper YAML
         compose_file = factory_dir / "docker-compose.yml"
         with open(compose_file, 'w') as f:
-            f.write(compose_yaml)
+            yaml.dump(compose_dict, f, default_flow_style=False, sort_keys=False)
+        
+        print(f"  ✓ Generated docker-compose.yml")
+
+        # Generate factory configuration file
+        print("\nGenerating factory configuration...")
+        config_copy_file = factory_dir / "factory-config.json"
+        with open(config_copy_file, 'w') as f:
+            json.dump(self.config, f, indent=2)
+
+        # Generate requirements.txt for shared modules
+        print("\nGenerating requirements file...")
+        requirements_content = '''paho-mqtt>=2.0.0
+psycopg2-binary>=2.9.0
+pyyaml>=6.0
+pydantic>=2.0.0
+redis>=4.5.0
+requests>=2.28.0
+'''
+        requirements_file = factory_dir / "services" / "shared" / "requirements.txt"
+        with open(requirements_file, 'w') as f:
+            f.write(requirements_content)
 
         # Generate README
         print("\nGenerating documentation...")
@@ -841,11 +950,113 @@ log_type all
         with open(readme_file, 'w') as f:
             f.write(readme)
 
+        # Generate startup script
+        print("\nGenerating startup scripts...")
+        self._generate_startup_scripts(factory_dir)
+
         print(f"\n✅ Factory generated successfully in: {factory_dir}")
         print(f"\nNext steps:")
         print(f"1. cd {factory_dir}")
         print(f"2. docker compose up --build")
         print(f"3. Start production workflows")
+
+        # Print factory summary
+        self._print_factory_summary()
+
+    def _generate_startup_scripts(self, factory_dir: Path):
+        """Generate startup scripts for the factory"""
+        
+        # Generate start.sh
+        start_script = '''#!/bin/bash
+echo "🏭 Starting Factory: $(basename $(pwd))"
+echo "======================================"
+
+# Check if Docker is running
+if ! docker info > /dev/null 2>&1; then
+    echo "❌ Docker is not running. Please start Docker first."
+    exit 1
+fi
+
+# Build and start services
+echo "Building and starting factory services..."
+docker compose up --build -d
+
+echo ""
+echo "✅ Factory started successfully!"
+echo ""
+echo "📊 Monitoring:"
+echo "   MQTT Messages: mosquitto_sub -h localhost -p 31883 -t 'factory/#' -v"
+echo "   Logs: docker compose logs -f"
+echo ""
+echo "🛑 To stop: docker compose down"
+'''
+
+        start_file = factory_dir / "start-factory.sh"
+        with open(start_file, 'w') as f:
+            f.write(start_script)
+        start_file.chmod(0o755)
+
+        # Generate stop.sh
+        stop_script = '''#!/bin/bash
+echo "🛑 Stopping Factory: $(basename $(pwd))"
+docker compose down
+echo "✅ Factory stopped"
+'''
+
+        stop_file = factory_dir / "stop-factory.sh"
+        with open(stop_file, 'w') as f:
+            f.write(stop_script)
+        stop_file.chmod(0o755)
+
+    def _print_factory_summary(self):
+        """Print a summary of the generated factory"""
+        factory_id = self.config['factory_id']
+        
+        print(f"\n🏭 Factory Summary: {self.config['factory_name']}")
+        print("=" * 50)
+        
+        # Machines summary
+        print(f"\n📦 Machines ({len(self.config['machines'])}):")
+        for machine in self.config['machines']:
+            if machine.get('enabled', True):
+                status = "✅" 
+            else:
+                status = "❌"
+            print(f"   {status} {machine['machine_id']} ({machine['machine_type']})")
+        
+        # Workflows summary
+        print(f"\n📋 Workflows ({len(self.config['workflows'])}):")
+        for workflow in self.config['workflows']:
+            print(f"   📄 {workflow['workflow_id']}: {workflow['workflow_name']}")
+        
+        # Services summary
+        print(f"\n🔧 Services:")
+        print("   ✅ MQTT Broker (mosquitto)")
+        print("   ✅ PostgreSQL Database")
+        print("   ✅ Production Orchestrator")
+        print("   ✅ Monitoring Service")
+        
+        # Access information
+        print(f"\n🌐 Access Information:")
+        print(f"   MQTT Broker:    localhost:31883")
+        print(f"   Database:       localhost:5432")
+        print(f"   MQTT WebSocket: localhost:9001")
+        
+        # Quick commands
+        print(f"\n⚡ Quick Commands:")
+        print(f"   Monitor MQTT:    mosquitto_sub -h localhost -p 31883 -t 'factory/#' -v")
+        print(f"   View Logs:       docker compose logs -f")
+        print(f"   Stop Factory:    docker compose down")
+        print(f"   Restart:         docker compose restart")
+        
+        # Production example
+        if self.config['workflows']:
+            workflow = self.config['workflows'][0]
+            print(f"\n🎯 Start Production:")
+            print(f"   mosquitto_pub -h localhost -p 31883 \\")
+            print(f"     -t 'factory/{self.config.get('mqtt_config', {}).get('site_id', 'site-01')}/production/request' \\")
+            print(f"     -m '{{\"product_type\": \"{workflow['product_type']}\", \"quantity\": 1}}'")
+
 
     def _generate_readme(self) -> str:
         """Generate README for factory"""

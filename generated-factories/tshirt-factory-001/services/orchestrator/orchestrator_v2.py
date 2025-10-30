@@ -14,7 +14,7 @@ from threading import Thread, Lock
 from typing import Dict, List, Optional
 
 # Add shared modules to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../shared'))
+sys.path.insert(0, '/app/shared')
 
 from mqtt_client import MQTTClient
 from workflow_engine import WorkflowRegistry, WorkflowDefinition, WorkflowStep, WorkflowValidator

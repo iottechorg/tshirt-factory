@@ -2,14 +2,17 @@ FROM python:3.9-slim
 
 WORKDIR /app
 
-# Copy shared modules
-COPY ../shared /app/shared
-
-# Copy orchestrator files
-COPY . /app/
-
 # Install dependencies
-RUN pip install --no-cache-dir -r /app/shared/requirements.txt
+COPY services/shared/requirements.txt /app/shared-requirements.txt
+RUN pip install --no-cache-dir -r /app/shared-requirements.txt
 
-# Run the service
-CMD ["python", "monitoring.py"]
+# Copy shared module
+COPY services/shared /app/shared
+
+# Copy monitoring code
+COPY services/monitoring /app/monitoring
+
+WORKDIR /app/monitoring
+
+# Run monitoring service
+CMD ["python3", "monitoring_service.py"]

@@ -9,7 +9,8 @@ import time
 import math
 from typing import Dict, Any
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../shared'))
+sys.path.insert(0, '/app/shared')
+
 from base_machine import BaseMachine
 
 
@@ -52,10 +53,10 @@ class QualitycheckMachine(BaseMachine):
     def _initialize_sensors(self) -> Dict[str, Any]:
         """Initialize sensor values from template"""
         return {
-            "camera_temperature": 30.0
-            "light_intensity": 1000.0
-            "scan_speed": 1.0
-            "defect_detection_rate": 0.97
+              "camera_temperature": 30.0,
+            "light_intensity": 1000.0,
+            "scan_speed": 1.0,
+            "defect_detection_rate": 0.97,
             "inspection_score": 95.0
         }
 

@@ -12,10 +12,10 @@ import json
 from threading import Lock
 
 # Add shared modules to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../shared'))
+sys.path.insert(0, '/app/shared')
 
-from mqtt_client import MQTTClient
-from db import TimeSeriesConnection, DatabaseConnection # ADD DatabaseConnection
+from mqtt_client import MQTTClientWrapper
+from database import TimeSeriesConnection, DatabaseConnection # ADD DatabaseConnection
 from cloud_publisher import CloudPublisher # ADD CloudPublisher
 from config import (
     MQTT_BROKER, MQTT_PORT, MQTT_KEEPALIVE,

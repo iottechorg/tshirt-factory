@@ -9,7 +9,8 @@ import time
 import math
 from typing import Dict, Any
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../shared'))
+sys.path.insert(0, '/app/shared')
+
 from base_machine import BaseMachine
 
 
@@ -52,10 +53,10 @@ class PackagingMachine(BaseMachine):
     def _initialize_sensors(self) -> Dict[str, Any]:
         """Initialize sensor values from template"""
         return {
-            "sealing_temperature": 160.0
-            "conveyor_speed": 0.85
-            "label_dispenser_level": 85.0
-            "packaging_rate": 30.0
+              "sealing_temperature": 160.0,
+            "conveyor_speed": 0.85,
+            "label_dispenser_level": 85.0,
+            "packaging_rate": 30.0,
             "package_quality_score": 95.0
         }
 

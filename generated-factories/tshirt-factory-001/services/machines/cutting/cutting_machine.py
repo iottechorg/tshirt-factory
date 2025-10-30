@@ -9,7 +9,8 @@ import time
 import math
 from typing import Dict, Any
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../shared'))
+sys.path.insert(0, '/app/shared')
+
 from base_machine import BaseMachine
 
 
@@ -50,9 +51,9 @@ class CuttingMachine(BaseMachine):
     def _initialize_sensors(self) -> Dict[str, Any]:
         """Initialize sensor values from template"""
         return {
-            "blade_temperature": 30.0
-            "blade_pressure": 1.25
-            "cut_speed": 0.2
+              "blade_temperature": 30.0,
+            "blade_pressure": 1.25,
+            "cut_speed": 0.2,
             "motor_current": 0.85
         }
 

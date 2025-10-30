@@ -9,7 +9,8 @@ import time
 import math
 from typing import Dict, Any
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../shared'))
+sys.path.insert(0, '/app/shared')
+
 from base_machine import BaseMachine
 
 
@@ -50,9 +51,9 @@ class SewingMachine(BaseMachine):
     def _initialize_sensors(self) -> Dict[str, Any]:
         """Initialize sensor values from template"""
         return {
-            "needle_temperature": 33.0
-            "thread_tension": 0.8
-            "stitch_speed": 0.275
+              "needle_temperature": 33.0,
+            "thread_tension": 0.8,
+            "stitch_speed": 0.275,
             "motor_current": 0.75
         }
 

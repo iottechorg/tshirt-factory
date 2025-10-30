@@ -9,12 +9,11 @@ import time
 import logging
 import threading
 
-# Add paths
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../shared'))
+# Add paths to include shared module
+sys.path.insert(0, '/app/shared')
+sys.path.insert(0, '/app')
 
 from shared.mqtt_client import MQTTClientWrapper
-from shared.database import DatabaseManager
 from cutting_machine import CuttingMachine
 
 logging.basicConfig(

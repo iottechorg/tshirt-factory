@@ -13,9 +13,10 @@ from queue import Queue
 from threading import Thread, Lock
 
 # Add shared modules to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../shared'))
 
-from mqtt_client import MQTTClient
+sys.path.insert(0, '/app/shared')
+
+from mqtt_client import MQTTClientWrapper
 from config import (
     MQTT_BROKER, MQTT_PORT, MQTT_KEEPALIVE,
     FACTORY_SITE_ID, PRODUCTION_LOOP_INTERVAL,

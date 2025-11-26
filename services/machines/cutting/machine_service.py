@@ -72,6 +72,7 @@ def handle_command(topic, payload):
                 response_topic = command.get("response_topic")
                 if response_topic:
                     mqtt_client.publish_json(response_topic, result)
+                    logger.info(f"Published response to {response_topic}")
 
         elif command_type == "stop":
             machine.stop()

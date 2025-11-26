@@ -10,6 +10,18 @@ from typing import Callable, Optional
 logger = logging.getLogger(__name__)
 
 
+def topic_matches(pattern: str, topic: str) -> bool:
+    """Check if topic matches MQTT wildcard pattern"""
+    pattern_parts = pattern.split('/')
+    topic_parts = topic.split('/')
+    if len(pattern_parts) != len(topic_parts):
+        return False
+    for p, t in zip(pattern_parts, topic_parts):
+        if p != '+' and p != t:
+            return False
+    return True
+
+
 class MQTTClient:
     """Enhanced MQTT client for both publishing and subscribing"""
 
@@ -62,11 +74,13 @@ class MQTTClient:
             logger.debug(f"[{self.client_id}] Received message on topic '{topic}': {payload[:100]}")
 
         # Call registered callback for this topic
-        if topic in self.subscriptions:
-            try:
-                self.subscriptions[topic](topic, payload)
-            except Exception as e:
-                logger.error(f"[{self.client_id}] Error in message callback for topic '{topic}': {e}")
+        for pattern, callback in self.subscriptions.items():
+            if topic_matches(pattern, topic):
+                try:
+                    callback(topic, payload)
+                except Exception as e:
+                    logger.error(f"[{self.client_id}] Error in message callback for topic '{topic}': {e}")
+                break  # Assuming only one callback per topic
 
     def connect(self, retry_count: int = 5, retry_delay: int = 5):
         """Connect to MQTT broker with retry logic"""

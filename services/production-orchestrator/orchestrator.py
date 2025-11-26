@@ -22,7 +22,7 @@ from config import (
     MQTT_BROKER, MQTT_PORT, MQTT_KEEPALIVE,
     FACTORY_SITE_ID, PRODUCTION_LOOP_INTERVAL,
     get_machine_command_topic, get_production_status_topic,
-    get_production_result_topic
+    get_production_result_topic, MQTT_TOPIC_PRODUCTION
 )
 
 # Configure logging
@@ -382,6 +382,17 @@ class WorkflowOrchestrator:
         """Publish final production result"""
         result_topic = get_production_result_topic(order.order_id)
         self.mqtt_client.publish_json(result_topic, order.to_dict())
+        
+        # Also publish to the topic that the frontend listens to
+        production_data = {
+            "production_id": order.order_id,
+            "product_name": order.product_name,
+            "product_details": order.product_details,
+            "status": order.status,
+            "steps": order.step_results
+        }
+        logging.info(f"Publishing production data to {MQTT_TOPIC_PRODUCTION}: {production_data}")
+        self.mqtt_client.publish_json(MQTT_TOPIC_PRODUCTION, production_data)
 
 
 def register_machine(machine_type: str, machine_id: str):
@@ -416,7 +427,7 @@ def handle_machine_response(topic: str, payload: str):
         with machine_responses_lock:
             machine_responses[topic] = response
 
-        logger.debug(f"Received machine response on {topic}: {response.get('status')}")
+        logger.info(f"Received machine response on {topic}: {response.get('status')}")
     except json.JSONDecodeError as e:
         logger.error(f"Invalid JSON in machine response: {e}")
     except Exception as e:

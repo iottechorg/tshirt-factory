@@ -8,6 +8,10 @@ MQTT_TOPIC_MACHINE = "machine/data"
 MQTT_TOPIC_PRODUCTION = "production/data"
 MQTT_WS_PORT = int(os.getenv("MQTT_WS_PORT", 8083))
 
+MQTT_FRONTEND_BROKER = os.getenv("MQTT_FRONTEND_BROKER", "localhost")
+
+FACTORY_SITE_ID = os.getenv("FACTORY_SITE_ID", "site-01")
+
 # Flask web app
 WEBAPP_PORT = os.getenv("WEBAPP_PORT", 5001)  # If the port number is statically defined
 API_BASE_URL = "http://localhost:" + str(WEBAPP_PORT) # use host IP address such as 10.0.1.2 not localhost

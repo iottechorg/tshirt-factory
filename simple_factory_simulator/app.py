@@ -2,17 +2,28 @@ from flask import Flask, request, render_template, send_from_directory
 from flask_cors import CORS
 from managers import *
 import logging
+import json
 
 app = Flask(__name__)
 #app.config['DEBUG'] = True  # Enable debug mode
 CORS(app)
 
 
+def send_production_request_to_orchestrator(product_name, product_details):
+    """Send production request to orchestrator via MQTT"""
+    request_topic = f"factory/{FACTORY_SITE_ID}/production/request"
+    request_data = {
+        "product_type": "tshirt",
+        "product_details": product_details
+    }
+    production_mqtt_publisher.publish(request_topic, json.dumps(request_data))
+
+
 @app.route("/")
 def index():
     return render_template('index.html',
                            API_BASE_URL=API_BASE_URL,
-                           MQTT_BROKER=MQTT_RESOLVED_URL,
+                           MQTT_BROKER=MQTT_FRONTEND_BROKER,
                            MQTT_WS_PORT=MQTT_WS_PORT,
                            MQTT_TOPIC_PRODUCTION=MQTT_TOPIC_PRODUCTION,
                            MACHINE_DATA_REST_REQUEST_INTERVAL=MACHINE_DATA_REST_REQUEST_INTERVAL)
@@ -57,7 +68,7 @@ def start_production():
         return create_response({"message": "product_name is required"}, 400)
     product_name = data["product_name"]
     product_details = data.get("product_details", None)
-    production_manager.add_production_request(product_name, product_details)
+    send_production_request_to_orchestrator(product_name, product_details)
     return create_response({"message": "Production request added to queue"}, 202)
 
 
@@ -72,20 +83,20 @@ def update_production_config():
 @app.route("/test/<string:test_case>", methods=["POST"])
 def trigger_test_case(test_case):
     if test_case == "normal_production":
-        production_manager.add_production_request("T-Shirt", generate_random_product_details())
+        send_production_request_to_orchestrator("T-Shirt", generate_random_product_details())
     elif test_case == "high_temp_cutting":
         cutting_machine = next((m for m in machines if m.name == "cutting"), None)
         if cutting_machine:
             machine_manager.update_machine_sensor(cutting_machine.id, "blade_temperature", 40)
-        production_manager.add_production_request("T-Shirt", generate_random_product_details())
+        send_production_request_to_orchestrator("T-Shirt", generate_random_product_details())
     elif test_case == "low_thread_tension_sewing":
         sewing_machine = next((m for m in machines if m.name == "sewing"), None)
         if sewing_machine:
             machine_manager.update_machine_sensor(sewing_machine.id, "thread_tension", 0.1)
-        production_manager.add_production_request("T-Shirt", generate_random_product_details())
+        send_production_request_to_orchestrator("T-Shirt", generate_random_product_details())
     elif test_case == "high_failure_rate":
         production_manager.production_process.set_failure_rate(0.7)
-        production_manager.add_production_request("T-Shirt", generate_random_product_details())
+        send_production_request_to_orchestrator("T-Shirt", generate_random_product_details())
     elif test_case == "sensor_check":
         machines_status = {}
         for m in machines:
@@ -103,7 +114,7 @@ def trigger_test_case(test_case):
                 machine_manager.update_machine_sensor(m.id, "nozzle_pressure", 1)
             machines_status[m.name] = m.sensor_data
         logging.info(f"Sensor values for machines are: {machines_status}")
-        production_manager.add_production_request("T-Shirt", generate_random_product_details())
+        send_production_request_to_orchestrator("T-Shirt", generate_random_product_details())
     elif test_case == "random_test":
         machines_data = get_machines()
         test_case = generate_random_test_case(json.loads(machines_data.data))
@@ -119,7 +130,7 @@ def trigger_test_case(test_case):
                 if machine:
                     machine_manager.update_machine(machine["id"], {"failure_rate": step["failure_rate"]})
             elif step["action"] == "production_request":
-                production_manager.add_production_request(step["product_name"], step["details"])
+                send_production_request_to_orchestrator(step["product_name"], step["details"])
             elif step["action"] == "update_production_success_rate":
                 if step["success_rate"]:
                     production_manager.production_process.set_failure_rate(1 - float(step["success_rate"]))

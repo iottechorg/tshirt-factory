@@ -123,22 +123,37 @@ function updateProductionConfig(successRate, failureRateMultiplier) {
  }
 
 function fetchTestCases() {
-    $.ajax({
-        url: "test_cases.json",
-        type: 'GET',
-        dataType: 'json',
-        success: function(data) {
-            let testSelect = $('#testSelect');
-            testSelect.empty();
-              testSelect.append(`<option value="All">All</option>`);
-            data.test_cases.forEach((test, index) => {
-                testSelect.append(`<option value="${index}">${test.name}: ${test.description}</option>`)
-            })
-        },
-       error: function(error) {
-           console.log("Error loading test cases:", error);
-           $('#test-cases-status').html('<p class="text-danger">Error loading test cases</p>');
-        }
+    // Embedded test cases data
+    const data = {
+        "test_cases": [
+            {
+                "name": "normal_production",
+                "description": "Runs a normal production scenario."
+            },
+            {
+                "name": "high_temp_cutting",
+                "description": "Simulates high temperature during cutting."
+            },
+            {
+                "name": "low_thread_tension_sewing",
+                "description": "Simulates low thread tension during sewing."
+            },
+            {
+                "name": "sensor_failure_printing",
+                "description": "Simulates sensor failure during printing."
+            },
+            {
+                "name": "power_fluctuation_ironing",
+                "description": "Simulates power fluctuation during ironing."
+            }
+        ]
+    };
+
+    let testSelect = $('#testSelect');
+    testSelect.empty();
+    testSelect.append(`<option value="All">All</option>`);
+    data.test_cases.forEach((test, index) => {
+        testSelect.append(`<option value="${index}">${test.name}: ${test.description}</option>`)
     });
 }
 
@@ -166,14 +181,14 @@ function triggerRandomTestCase() {
         type: 'POST',
         success: function(data) {
            console.log("Random test case started:", data);
-           $('#random-test-status').html('<p class="text-success">Random test case started.</p>');
+           $('#test-cases-status').html('<p class="text-green-600">Random test case started.</p>');
              setTimeout(function() {
-                $('#random-test-status').empty()
+                $('#test-cases-status').empty()
             }, 5000);
         },
         error: function(error){
            console.log("Error while running random test case:", error)
-           $('#random-test-status').html('<p class="text-danger">Error while running random test case</p>');
+           $('#test-cases-status').html('<p class="text-red-600">Error while running random test case</p>');
         }
     });
 }
@@ -288,46 +303,30 @@ $(document).ready(function() {
        }
     });
     $('#runTestCaseBtn').click(function() {
-       let testCaseName = $('#testSelect').val();
-      if(testCaseName == "All"){
-            $.ajax({
-                    url: "test_cases.json",
-                    type: 'GET',
-                     dataType: 'json',
-                     success: function(data) {
-                       if(data && data.test_cases){
-                         data.test_cases.forEach(test => {
-                            triggerTestCase(test.name);
-                      });
-                     }
-                  },
-                    error: function(error) {
-                       console.log("Error while loading test cases:", error)
-                        $('#test-cases-status').html('<p class="text-danger">Error while running test case!</p>');
-                    }
-           });
-       }else {
-           $.ajax({
-               url: "test_cases.json",
-                type: 'GET',
-               dataType: 'json',
-                success: function(data) {
-                   if (data && data.test_cases) {
-                       let testIndex = $('#testSelect').val();
-                       if (data.test_cases[testIndex]) {
-                         triggerTestCase(data.test_cases[testIndex].name);
-                     }
-                   }else {
-                         console.log("Test case not found!");
-                      $('#test-cases-status').html('<p class="text-danger">Test case not found!</p>');
-                  }
-                },
-                 error: function(error) {
-                     console.log("Error while loading test cases:", error)
-                     $('#test-cases-status').html('<p class="text-danger">Error while running test case!</p>');
-                }
+       let testCaseValue = $('#testSelect').val();
+      if(testCaseValue == "All"){
+            // Embedded test cases data
+            const testCases = [
+                "normal_production",
+                "high_temp_cutting",
+                "low_thread_tension_sewing", 
+                "sensor_failure_printing",
+                "power_fluctuation_ironing"
+            ];
+            testCases.forEach(name => {
+                triggerTestCase(name);
             });
-        }
+       }else {
+           // testCaseValue is the index, get the name from embedded data
+           const testCases = [
+               "normal_production",
+               "high_temp_cutting",
+               "low_thread_tension_sewing",
+               "sensor_failure_printing", 
+               "power_fluctuation_ironing"
+           ];
+           triggerTestCase(testCases[parseInt(testCaseValue)]);
+       }
     });
     $('#generateRandomTestCaseBtn').click(function() {
        triggerRandomTestCase();
@@ -378,28 +377,30 @@ $(document).ready(function() {
        let table = $('#production-table')
         let tableBody = $('#production-table-body')
        if (!table.length){
-          $('#tests').append(
-           `<table id="production-table" class="table table-striped mt-3">
-               <thead>
-                  <tr>
-                    <th>Test Name</th>
-                       <th>Product Id</th>
-                    <th>Result</th>
-                    <th>Data</th>
-                   </tr>
-               </thead>
-                <tbody id="production-table-body"></tbody>
-           </table>`
+          $('#production-results').append(
+           `<div class="overflow-x-auto">
+               <table id="production-table" class="min-w-full divide-y divide-gray-200">
+                   <thead class="bg-gray-50">
+                      <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Product Name</th>
+                           <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Production ID</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Steps</th>
+                       </tr>
+                   </thead>
+                    <tbody id="production-table-body" class="bg-white divide-y divide-gray-200"></tbody>
+               </table>
+           </div>`
           );
            tableBody = $('#production-table-body')
         }
-        let step_information =  productionData["steps"] ? productionData["steps"].map((s) => ` Step: ${s.name} status: ${s.status}`).join(",") : ""
+        let step_information =  productionData["steps"] ? productionData["steps"].map((s) => ` Step: ${s.operation} status: ${s.status}`).join(",") : ""
         let row = `
               <tr>
-                  <td>${productionData["product_name"] || "-"}</td>
-                   <td>${productionData["production_id"] || "-"}</td>
-                  <td>${productionData["status"] || "-"}</td>
-                 <td> ${step_information} </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${productionData["product_name"] || "-"}</td>
+                   <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${productionData["production_id"] || "-"}</td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${productionData["status"] || "-"}</td>
+                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${step_information}</td>
                 </tr>`;
          tableBody.prepend(row)
          const maxRows = 10;

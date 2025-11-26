@@ -86,21 +86,7 @@ def create_response(data, status_code=200):
 
 def resolve_address(address):
     """
-    Resolves the given address to 'localhost' if it's a Docker container name,
-    or returns the original address if it's a server address or IP.
+    Resolves the given address. In Docker networks, container names resolve directly.
+    For external addresses, return as is.
     """
-    # Docker container names don't have a domain or look like IPs
-    container_name_pattern = r"^[a-zA-Z0-9_.-]+$"
-    ip_pattern = r"^\d{1,3}(\.\d{1,3}){3}$"  # Matches IPv4 addresses
-
-    if re.match(container_name_pattern, address):
-        if not re.match(ip_pattern, address) and "." not in address:
-            # Likely a container name
-            try:
-                # Check if the name resolves (Docker container names often do)
-                socket.gethostbyname(address)
-                return "localhost"
-            except socket.gaierror:
-                # If resolution fails, treat it as non-container
-                pass
     return address

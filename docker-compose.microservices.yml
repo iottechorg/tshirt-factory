@@ -16,7 +16,7 @@ services:
     container_name: factory-mqtt
     ports:
       - "31883:1883"
-      - "9002:9001"
+      - "9001:9001"
     volumes:
       - ./mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf
       - mosquitto_data:/mosquitto/data
@@ -281,14 +281,16 @@ services:
     build:
       context: ./simple_factory_simulator/
       dockerfile: Dockerfile
-    container_name: factory-simulator-legacy
+      args:
+        WEBAPP_PORT: ${WEBAPP_PORT}  # Pass the desired port during build
+    container_name: factory-simulator
     ports:
       - "5001:5001"
     environment:
       MQTT_BROKER: mqttbroker
       MQTT_PORT: 1883
       MQTT_WS_PORT: 9001
-      WEBAPP_PORT: 5001
+      WEBAPP_PORT: 5002
       MACHINE_DATA_PUBLISH_INTERVAL: 10
       PRODUCTION_LOOP_INTERVAL: 5
     depends_on:
@@ -303,6 +305,8 @@ services:
     build:
       context: ./tshirt-customizer/
       dockerfile: Dockerfile
+      args:
+        API_URL: ${API_URL} # Passing the env variable to the build args
     container_name: factory-frontend
     ports:
       - "8080:80"

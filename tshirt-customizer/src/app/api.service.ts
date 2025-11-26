@@ -18,7 +18,14 @@ export class ApiService {
         if(extraKeywords)
             keywords = `${keywords}_${extraKeywords.trim().replace(/\s+/g, '_')}`;
 
-        const imageUrl = `${this.aiImageUrl}${keywords}_on_tshirt_with_white_background`;
+        // Use the AI image generation service with the constructed prompt
+        const prompt = keywords.replace(/_/g, ' ');
+        const imageUrl = `${this.aiImageUrl}${encodeURIComponent(prompt)}`;
+
+        console.log('API Service: Generating AI image');
+        console.log('Keywords:', keywords);
+        console.log('Prompt:', prompt);
+        console.log('Using image URL:', imageUrl);
 
         return new Observable<string>(observer => {
             observer.next(imageUrl);

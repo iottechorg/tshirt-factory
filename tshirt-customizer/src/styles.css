@@ -1,4 +1,38 @@
-/* You can add global styles to this file, and also import other style files */
+/* Tailwind CSS */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-html, body { height: 100%; }
-body { margin: 0; font-family: Roboto, "Helvetica Neue", sans-serif; }
+/* Global Styles */
+html, body { 
+  height: 100%; 
+  margin: 0;
+  padding: 0;
+}
+
+body { 
+  margin: 0; 
+  font-family: Roboto, "Helvetica Neue", sans-serif;
+  background-color: #f9fafb;
+}
+
+/* Fix for Material Design selects */
+.mdc-text-field {
+  width: 100%;
+}
+
+.mat-mdc-form-field-focus-overlay {
+  background-color: transparent;
+}
+
+/* Ensure selects and textareas inherit proper styling */
+select, textarea {
+  border-color: #d1d5db;
+}
+
+select:focus, textarea:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+  border-color: #4f46e5;
+}
+

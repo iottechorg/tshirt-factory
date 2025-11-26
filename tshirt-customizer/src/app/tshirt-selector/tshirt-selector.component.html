@@ -1,227 +1,151 @@
-<div class="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 py-8 px-4 sm:px-6 lg:px-8">
+<nav class="sticky top-0 z-50 backdrop-blur-lg bg-slate-900/80 border-b border-slate-700/50">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="flex items-center justify-between h-16">
+      <div class="flex items-center space-x-3">
+        <div class="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">T-Shirt Studio</div>
+        <p class="text-slate-400 text-sm">Design Your Perfect Tee</p>
+      </div>
+      <button (click)="navigateToMachineObservation()" class="px-4 py-2 rounded-lg bg-slate-700/50 hover:bg-slate-700 text-slate-200 transition-colors text-sm font-medium">Factory Status</button>
+    </div>
+  </div>
+</nav>
+
+<div class="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 py-8 px-4 sm:px-6 lg:px-8">
   <div class="max-w-7xl mx-auto">
-    <!-- Header -->
-    <div class="text-center mb-12">
-      <h1 class="text-4xl font-bold text-gray-900 mb-2">
-        T-Shirt Customizer
-      </h1>
-      <p class="text-gray-600">Design your perfect t-shirt with AI</p>
+    <div class="mb-12">
+      <h1 class="text-4xl sm:text-5xl font-bold text-white mb-2">Customize Your T-Shirt</h1>
+      <p class="text-slate-400 text-lg">Choose your design, size, and let AI bring it to life</p>
     </div>
 
-    <!-- Main Card -->
-    <div class="bg-white rounded-2xl shadow-xl overflow-hidden">
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 p-8">
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-12">
+      <div class="lg:col-span-1">
+        <div class="bg-slate-800/50 backdrop-blur rounded-xl p-6 border border-slate-700/50">
+          <h2 class="text-xl font-bold text-white mb-6">Design Options</h2>
 
-        <!-- Left Panel - Options -->
-        <div class="space-y-6">
-          <div class="border-b border-gray-200 pb-4">
-            <h2 class="text-2xl font-semibold text-gray-800 mb-4 flex items-center">
-              <svg class="w-6 h-6 mr-2 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path>
-              </svg>
-              Customize Your Design
-            </h2>
-          </div>
-
-          <!-- Material Selection -->
-          <div class="space-y-2">
-            <label class="block text-sm font-medium text-gray-700">Material</label>
-            <div class="relative">
-              <select [(ngModel)]="tshirtOptions.material"
-                      class="block w-full px-4 py-3 text-base border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 rounded-lg shadow-sm bg-gray-50 hover:bg-white transition-colors">
-                <option value="Cotton">Cotton - Soft & Breathable</option>
-                <option value="Polyester">Polyester - Durable & Quick-Dry</option>
-              </select>
+          <div class="space-y-3 mb-6 pb-6 border-b border-slate-700/50">
+            <label class="block text-sm font-semibold text-slate-300">Material</label>
+            <div class="flex gap-3">
+              <button *ngFor="let material of materials" (click)="tshirtOptions.material = material" [ngClass]="{'ring-2 ring-cyan-400 bg-slate-700': tshirtOptions.material === material, 'bg-slate-700/50': tshirtOptions.material !== material}" class="flex-1 py-2 px-3 rounded-lg text-xs font-medium text-slate-200 hover:bg-slate-700 transition-all duration-200 border border-slate-600/50">{{ material }}</button>
             </div>
           </div>
 
-          <!-- Size Selection -->
-          <div class="space-y-2">
-            <label class="block text-sm font-medium text-gray-700">Size</label>
+          <div class="space-y-3 mb-6 pb-6 border-b border-slate-700/50">
+            <label class="block text-sm font-semibold text-slate-300">Size</label>
+            <div class="grid grid-cols-4 gap-2">
+              <button *ngFor="let size of sizes" (click)="tshirtOptions.size = size" [ngClass]="{'ring-2 ring-cyan-400 bg-cyan-500/20 text-cyan-300': tshirtOptions.size === size, 'bg-slate-700/50 text-slate-300': tshirtOptions.size !== size}" class="py-2 rounded-lg text-sm font-medium hover:bg-slate-700 transition-all duration-200 border border-slate-600/50">{{ size.charAt(0) }}</button>
+            </div>
+          </div>
+
+          <div class="space-y-3 mb-6 pb-6 border-b border-slate-700/50">
+            <label class="block text-sm font-semibold text-slate-300">Color</label>
             <div class="grid grid-cols-4 gap-3">
-              <button *ngFor="let size of ['Small', 'Medium', 'Large', 'X-Large']"
-                      (click)="tshirtOptions.size = size"
-                      [class.bg-indigo-600]="tshirtOptions.size === size"
-                      [class.text-white]="tshirtOptions.size === size"
-                      [class.bg-gray-100]="tshirtOptions.size !== size"
-                      [class.text-gray-700]="tshirtOptions.size !== size"
-                      class="py-3 px-4 rounded-lg font-medium hover:shadow-md transition-all duration-200 border-2"
-                      [class.border-indigo-600]="tshirtOptions.size === size"
-                      [class.border-transparent]="tshirtOptions.size !== size">
-                {{ size.substring(0, size === 'X-Large' ? 2 : 1) }}
-              </button>
+              <button *ngFor="let color of colors" (click)="selectedColor = color" [style.background-color]="color.hex" [title]="color.name" [ngClass]="{'ring-2 ring-offset-2 ring-offset-slate-800 ring-cyan-400': selectedColor.name === color.name}" class="h-10 rounded-lg border border-slate-600/50 transition-all duration-200 hover:scale-105 cursor-pointer"></button>
             </div>
           </div>
 
-          <!-- Color Selection -->
-          <div class="space-y-2">
-            <label class="block text-sm font-medium text-gray-700">Color</label>
-            <div class="grid grid-cols-4 gap-3">
-              <button *ngFor="let color of ['White', 'Black', 'Red', 'Blue']"
-                      (click)="tshirtOptions.color = color"
-                      class="relative h-14 rounded-lg border-4 transition-all duration-200 hover:scale-105"
-                      [class.border-indigo-600]="tshirtOptions.color === color"
-                      [class.border-gray-300]="tshirtOptions.color !== color"
-                      [style.backgroundColor]="color.toLowerCase()">
-                <span *ngIf="tshirtOptions.color === color"
-                      class="absolute inset-0 flex items-center justify-center">
-                  <svg class="w-6 h-6" [class.text-white]="color !== 'White'" [class.text-gray-800]="color === 'White'" fill="currentColor" viewBox="0 0 20 20">
-                    <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
-                  </svg>
-                </span>
-              </button>
+          <div class="space-y-3 mb-6 pb-6 border-b border-slate-700/50">
+            <label class="block text-sm font-semibold text-slate-300">Collar Style</label>
+            <div class="grid grid-cols-3 gap-2">
+              <button *ngFor="let collar of collars" (click)="tshirtOptions.collar = collar.value" [ngClass]="{'ring-2 ring-cyan-400 bg-cyan-500/20 text-cyan-300': tshirtOptions.collar === collar.value, 'bg-slate-700/50 text-slate-300': tshirtOptions.collar !== collar.value}" class="py-2 px-3 rounded-lg text-sm font-medium hover:bg-slate-700 transition-all duration-200 border border-slate-600/50">{{ collar.label }}</button>
             </div>
           </div>
 
-          <!-- Collar Selection -->
-          <div class="space-y-2">
-            <label class="block text-sm font-medium text-gray-700">Collar Style</label>
-            <div class="grid grid-cols-3 gap-3">
-              <button *ngFor="let collar of [{value: 'circle', label: 'Circle'}, {value: 'v-shape', label: 'V-Shape'}, {value: 'polo', label: 'Polo'}]"
-                      (click)="tshirtOptions.collar = collar.value"
-                      [class.bg-indigo-600]="tshirtOptions.collar === collar.value"
-                      [class.text-white]="tshirtOptions.collar === collar.value"
-                      [class.bg-gray-100]="tshirtOptions.collar !== collar.value"
-                      [class.text-gray-700]="tshirtOptions.collar !== collar.value"
-                      class="py-3 px-4 rounded-lg font-medium hover:shadow-md transition-all duration-200 border-2"
-                      [class.border-indigo-600]="tshirtOptions.collar === collar.value"
-                      [class.border-transparent]="tshirtOptions.collar !== collar.value">
-                {{ collar.label }}
-              </button>
-            </div>
-          </div>
-
-          <!-- Extra Keywords -->
-          <div class="space-y-2">
-            <label class="block text-sm font-medium text-gray-700">
-              Extra Design Keywords
-              <span class="text-xs text-gray-500 ml-1">(optional)</span>
-            </label>
-            <textarea [(ngModel)]="extraKeywords"
-                      rows="3"
-                      placeholder="e.g., vintage style, minimalist design, bold graphics..."
-                      class="block w-full px-4 py-3 text-base border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 rounded-lg shadow-sm resize-none bg-gray-50 hover:bg-white transition-colors"></textarea>
-          </div>
-        </div>
-
-        <!-- Right Panel - Preview -->
-        <div class="space-y-6">
-          <div class="border-b border-gray-200 pb-4">
-            <h2 class="text-2xl font-semibold text-gray-800 mb-4 flex items-center">
-              <svg class="w-6 h-6 mr-2 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
-              </svg>
-              Preview
-            </h2>
-          </div>
-
-          <!-- Preview Container -->
-          <div class="flex flex-col items-center space-y-6">
-            <div class="relative w-full max-w-md aspect-square rounded-2xl overflow-hidden shadow-lg border-4 border-gray-200 bg-gradient-to-br from-gray-50 to-gray-100"
-                 [style.borderColor]="tshirtOptions.color.toLowerCase()">
-              <div class="absolute inset-0 flex items-center justify-center"
-                   [style.backgroundColor]="aiGeneratedImage ? 'transparent' : tshirtOptions.color.toLowerCase()">
-                <img *ngIf="aiGeneratedImage"
-                     [src]="aiGeneratedImage"
-                     alt="T-shirt Preview"
-                     class="w-full h-full object-cover" />
-                <div *ngIf="!aiGeneratedImage" class="text-center p-8">
-                  <svg class="w-24 h-24 mx-auto mb-4 opacity-30" [class.text-white]="tshirtOptions.color !== 'White'" [class.text-gray-400]="tshirtOptions.color === 'White'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
-                  </svg>
-                  <p class="font-medium" [class.text-white]="tshirtOptions.color !== 'White'" [class.text-gray-600]="tshirtOptions.color === 'White'">
-                    Click "Generate AI Image" to see your design
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <!-- Generate Button -->
-            <button (click)="generateAiImage()"
-                    class="w-full max-w-md py-4 px-6 bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-200 flex items-center justify-center space-x-2">
-              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
-              </svg>
-              <span>Generate AI Image</span>
-            </button>
-
-            <!-- Error Messages -->
-            <div *ngIf="apiLimitReached || apiLimitMessage"
-                 class="w-full max-w-md p-4 rounded-lg"
-                 [class.bg-red-50]="apiLimitReached"
-                 [class.bg-yellow-50]="!apiLimitReached && apiLimitMessage">
-              <div class="flex items-start">
-                <svg class="w-5 h-5 mt-0.5 mr-3" [class.text-red-600]="apiLimitReached" [class.text-yellow-600]="!apiLimitReached" fill="currentColor" viewBox="0 0 20 20">
-                  <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
-                </svg>
-                <p [class.text-red-800]="apiLimitReached" [class.text-yellow-800]="!apiLimitReached" class="text-sm font-medium">
-                  {{ apiLimitMessage }}
-                </p>
-              </div>
-            </div>
+          <div class="space-y-3">
+            <label class="block text-sm font-semibold text-slate-300">Design Style (Optional)</label>
+            <input [(ngModel)]="extraKeywords" type="text" placeholder="e.g., 'vintage', 'modern', 'artistic'" class="w-full bg-slate-700/50 border border-slate-600/50 rounded-lg px-4 py-2 text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-400 transition-all">
           </div>
         </div>
       </div>
 
-      <!-- Action Buttons -->
-      <div class="bg-gray-50 px-8 py-6 border-t border-gray-200">
-        <div class="flex flex-col sm:flex-row gap-4 justify-between items-center">
-          <button (click)="placeOrder()"
-                  class="w-full sm:w-auto py-4 px-8 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-200 flex items-center justify-center space-x-2">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path>
+      <div class="lg:col-span-2 space-y-6">
+        <div class="bg-slate-800/50 backdrop-blur rounded-xl p-8 border border-slate-700/50">
+          <h3 class="text-lg font-bold text-white mb-6">Live Preview</h3>
+          <div class="flex items-center justify-center relative">
+            <!-- T-Shirt SVG -->
+            <svg class="w-64 h-64" viewBox="0 0 200 240" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path [attr.fill]="selectedColor.hex" d="M50 50 L70 80 L70 200 Q100 210 130 200 L130 80 L150 50 Z" stroke="#1e293b" stroke-width="2"></path>
+              <circle *ngIf="tshirtOptions.collar === 'circle'" cx="100" cy="55" r="18" fill="none" stroke="#1e293b" stroke-width="2"></circle>
+              <path *ngIf="tshirtOptions.collar === 'v-shape'" d="M82 40 L100 60 L118 40" fill="none" stroke="#1e293b" stroke-width="2"></path>
+              <ellipse *ngIf="tshirtOptions.collar === 'polo'" cx="100" cy="50" rx="20" ry="12" fill="none" stroke="#1e293b" stroke-width="2"></ellipse>
+              
+              <!-- Placeholder when no image -->
+              <rect *ngIf="!aiGeneratedImage" x="65" y="100" width="70" height="70" fill="#0f172a" opacity="0.5" rx="4" stroke="#475569" stroke-width="1" stroke-dasharray="4"></rect>
+              <text *ngIf="!aiGeneratedImage" x="100" y="140" text-anchor="middle" font-size="12" fill="#94a3b8" font-style="italic">Design here</text>
             </svg>
-            <span>Place Order</span>
-          </button>
+            
+            <!-- AI Generated Image Overlay -->
+            <img *ngIf="aiGeneratedImage" 
+                 [src]="aiGeneratedImage" 
+                 alt="AI Generated Design"
+                 class="absolute w-40 h-40 object-cover rounded" 
+                 style="left: 50%; top: 50%; transform: translate(-50%, -50%); opacity: 0.95;"
+                 crossorigin="anonymous"
+                 (error)="onImageLoadError()">
+          </div>
+        </div>
 
-          <button (click)="navigateToMachineObservation()"
-                  class="w-full sm:w-auto py-4 px-8 bg-white text-indigo-600 font-semibold rounded-xl border-2 border-indigo-600 hover:bg-indigo-50 transition-all duration-200 flex items-center justify-center space-x-2">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
-            </svg>
-            <span>View Factory Status</span>
-          </button>
+        <div *ngIf="apiLimitReached || apiLimitMessage" [ngClass]="{'bg-red-500/10 border-red-600/50': apiLimitReached, 'bg-yellow-500/10 border-yellow-600/50': !apiLimitReached}" class="rounded-lg p-4 border flex items-start space-x-3">
+          <svg class="w-5 h-5 mt-0.5 flex-shrink-0" [ngClass]="{'text-red-400': apiLimitReached, 'text-yellow-400': !apiLimitReached}" fill="currentColor" viewBox="0 0 20 20">
+            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
+          </svg>
+          <p [ngClass]="{'text-red-200': apiLimitReached, 'text-yellow-200': !apiLimitReached}" class="text-sm">{{ apiLimitMessage }}</p>
         </div>
       </div>
     </div>
 
-    <!-- Info Cards -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
-      <div class="bg-white rounded-xl shadow-md p-6 border-t-4 border-indigo-500">
-        <div class="flex items-center space-x-3 mb-3">
-          <div class="p-2 bg-indigo-100 rounded-lg">
-            <svg class="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
-            </svg>
-          </div>
-          <h3 class="font-semibold text-gray-800">AI-Powered</h3>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-12">
+      <button (click)="generateAiImage()" [disabled]="isGenerating" class="group relative overflow-hidden rounded-xl py-4 px-6 font-semibold text-white transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed" style="background: linear-gradient(135deg, #06b6d4 0%, #0ea5e9 100%)">
+        <div class="absolute inset-0 opacity-0 group-hover:opacity-20 bg-white transition-opacity"></div>
+        <div class="relative flex items-center justify-center space-x-2">
+          <svg class="w-5 h-5" [class.animate-spin]="isGenerating" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+          </svg>
+          <span>{{ isGenerating ? 'Generating...' : 'Generate AI Design' }}</span>
         </div>
-        <p class="text-sm text-gray-600">Generate unique designs using advanced AI technology</p>
+      </button>
+
+      <button (click)="placeOrder()" class="group relative overflow-hidden rounded-xl py-4 px-6 font-semibold text-white transition-all duration-300 hover:shadow-lg" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%)">
+        <div class="absolute inset-0 opacity-0 group-hover:opacity-20 bg-white transition-opacity"></div>
+        <div class="relative flex items-center justify-center space-x-2">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"></path>
+          </svg>
+          <span>Place Order</span>
+        </div>
+      </button>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="bg-slate-800/50 backdrop-blur rounded-lg p-4 border border-slate-700/50 hover:border-cyan-500/50 transition-colors">
+        <svg class="w-8 h-8 text-cyan-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+        </svg>
+        <h4 class="font-semibold text-white mb-1">AI-Powered</h4>
+        <p class="text-sm text-slate-400">Generate unique designs with AI</p>
       </div>
 
-      <div class="bg-white rounded-xl shadow-md p-6 border-t-4 border-purple-500">
-        <div class="flex items-center space-x-3 mb-3">
-          <div class="p-2 bg-purple-100 rounded-lg">
-            <svg class="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"></path>
-            </svg>
-          </div>
-          <h3 class="font-semibold text-gray-800">Customizable</h3>
-        </div>
-        <p class="text-sm text-gray-600">Choose from multiple materials, colors, and styles</p>
+      <div class="bg-slate-800/50 backdrop-blur rounded-lg p-4 border border-slate-700/50 hover:border-cyan-500/50 transition-colors">
+        <svg class="w-8 h-8 text-cyan-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"></path>
+        </svg>
+        <h4 class="font-semibold text-white mb-1">Customizable</h4>
+        <p class="text-sm text-slate-400">Choose materials, sizes, and colors</p>
       </div>
 
-      <div class="bg-white rounded-xl shadow-md p-6 border-t-4 border-green-500">
-        <div class="flex items-center space-x-3 mb-3">
-          <div class="p-2 bg-green-100 rounded-lg">
-            <svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-            </svg>
-          </div>
-          <h3 class="font-semibold text-gray-800">Quality</h3>
-        </div>
-        <p class="text-sm text-gray-600">Premium materials and professional manufacturing</p>
+      <div class="bg-slate-800/50 backdrop-blur rounded-lg p-4 border border-slate-700/50 hover:border-cyan-500/50 transition-colors">
+        <svg class="w-8 h-8 text-cyan-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+        </svg>
+        <h4 class="font-semibold text-white mb-1">Quality Assured</h4>
+        <p class="text-sm text-slate-400">Premium materials and production</p>
+      </div>
+
+      <div class="bg-slate-800/50 backdrop-blur rounded-lg p-4 border border-slate-700/50 hover:border-cyan-500/50 transition-colors">
+        <svg class="w-8 h-8 text-cyan-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+        </svg>
+        <h4 class="font-semibold text-white mb-1">Fast Delivery</h4>
+        <p class="text-sm text-slate-400">Track your order in real-time</p>
       </div>
     </div>
   </div>

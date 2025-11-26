@@ -1,6 +1,6 @@
 """
-Production Orchestrator Service
-Coordinates production workflow across machines
+Production Orchestrator V2 - Workflow-based orchestration
+Supports flexible, configurable production workflows
 """
 import sys
 import os
@@ -11,23 +11,19 @@ import json
 from uuid import uuid4
 from queue import Queue
 from threading import Thread, Lock
+from typing import Dict, List, Optional
 
 # Add shared modules to path
-
 sys.path.insert(0, '/app/shared')
 
 from mqtt_client import MQTTClientWrapper
+from workflow_engine import WorkflowRegistry, WorkflowDefinition, WorkflowStep, WorkflowValidator
 from config import (
     MQTT_BROKER, MQTT_PORT, MQTT_KEEPALIVE,
     FACTORY_SITE_ID, PRODUCTION_LOOP_INTERVAL,
-    PRODUCTION_SUCCESS_RATE,
-    DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD, # ADD regular DB config
     get_machine_command_topic, get_production_status_topic,
     get_production_result_topic
 )
-
-from db import DatabaseConnection # ADD DatabaseConnection
-from cloud_publisher import CloudPublisher # ADD CloudPublisher
 
 # Configure logging
 logging.basicConfig(
@@ -38,39 +34,41 @@ logger = logging.getLogger(__name__)
 
 # Global variables
 running = True
-db_conn = None
-cloud_publisher = None
-
 production_queue = Queue()
 active_orders = {}
 active_orders_lock = Lock()
+machine_registry = {}  # machine_type -> [machine_ids]
+machine_registry_lock = Lock()
 
 
 class ProductionOrder:
-    """Represents a production order"""
+    """Represents a production order with workflow"""
 
-    def __init__(self, product_name, product_details):
+    def __init__(self, product_name: str, workflow: WorkflowDefinition, product_details: Dict):
         self.order_id = str(uuid4())
         self.product_name = product_name
-        self.product_details = self._process_product_details(product_details or {})
+        self.workflow = workflow
+        self.product_details = self._process_product_details(product_details)
         self.status = "pending"
-        self.steps = []
-        self.current_step = 0
+        self.step_results = []  # List of completed step results
+        self.current_step_index = 0
         self.created_at = time.time()
         self.completed_at = None
+        self.workflow_state = {}  # Stores outputs from each step
 
-    def _process_product_details(self, details):
+    def _process_product_details(self, details: Dict) -> Dict:
         """Fill in missing product details with defaults"""
         import random
 
         defaults = {
-            "material": random.choice(["Cotton", "Denim", "Polyester"]),
+            "material": random.choice(["Cotton", "Denim", "Polyester", "Fleece"]),
             "cut_size": random.choice(["Small", "Medium", "Large", "X-Large"]),
             "stitch_type": random.choice(["Straight", "Zigzag", "Satin"]),
             "thread_color": random.choice(["Red", "Green", "Blue", "Black", "White"]),
             "iron_temperature_setpoint": random.randint(100, 180),
             "steam_level": random.choice(["Low", "Medium", "High"]),
-            "ink_type": random.choice(["Water-based", "Plastisol", "None"])
+            "ink_type": random.choice(["Water-based", "Plastisol", "None"]),
+            "design_name": random.choice(["Logo1", "Logo2", "Pattern1", "None"])
         }
 
         for key, value in defaults.items():
@@ -79,93 +77,87 @@ class ProductionOrder:
 
         return details
 
-    def to_dict(self):
+    def to_dict(self) -> Dict:
         """Convert order to dictionary"""
         return {
             "order_id": self.order_id,
             "product_name": self.product_name,
+            "workflow_id": self.workflow.workflow_id,
+            "workflow_name": self.workflow.workflow_name,
             "product_details": self.product_details,
             "status": self.status,
-            "steps": self.steps,
+            "step_results": self.step_results,
+            "current_step": self.current_step_index,
+            "total_steps": len(self.workflow.steps),
             "created_at": self.created_at,
-            "completed_at": self.completed_at
+            "completed_at": self.completed_at,
+            "workflow_state": self.workflow_state
         }
 
 
-class ProductionOrchestrator:
-    """Orchestrates production across multiple machines"""
+class WorkflowOrchestrator:
+    """Orchestrates production using flexible workflows"""
 
-    def __init__(self, mqtt_client):
+    def __init__(self, mqtt_client: MQTTClientWrapper, workflow_registry: WorkflowRegistry):
         self.mqtt_client = mqtt_client
-        self.production_steps = [
-            {"name": "cutting", "machine_type": "cutting"},
-            {"name": "sewing", "machine_type": "sewing"},
-            {"name": "ironing", "machine_type": "ironing"},
-            {"name": "printing", "machine_type": "printing"}
-        ]
-        self.machine_ids = {}  # machine_type -> machine_id mapping
-        self.step_responses = {}  # order_id -> {step_name: response}
-        self.failure_rate = 1 - PRODUCTION_SUCCESS_RATE
+        self.workflow_registry = workflow_registry
 
-    def register_machine(self, machine_type, machine_id):
-        """Register a machine for production"""
-        self.machine_ids[machine_type] = machine_id
-        logger.info(f"Registered {machine_type} machine: {machine_id}")
+    def get_available_machine(self, machine_type: str) -> Optional[str]:
+        """Get an available machine of the specified type (simple round-robin for now)"""
+        with machine_registry_lock:
+            machines = machine_registry.get(machine_type, [])
+            if machines:
+                # Simple: return first available (in real system, check machine status)
+                return machines[0]
+            return None
 
     def process_order(self, order: ProductionOrder):
-        """Process a production order through all steps"""
-        logger.info(f"Starting production order: {order.order_id}")
-        global cloud_publisher
-
+        """Process a production order through its workflow"""
+        logger.info(f"Starting order {order.order_id} using workflow '{order.workflow.workflow_name}'")
         order.status = "in_progress"
 
-          # PERSIST & FORWARD: Initial status
-        self._persist_order(order)
-        cloud_publisher.publish_production_event(order.order_id, order.to_dict())
-
         # Publish initial status
-        status_topic = get_production_status_topic(order.order_id)
-        self.mqtt_client.publish_json(status_topic, {
-            "order_id": order.order_id,
-            "status": "in_progress",
-            "current_step": 0,
-            "total_steps": len(self.production_steps),
-            "timestamp": time.time()
-        })
+        self._publish_status(order, "started")
 
         try:
-            for idx, step_config in enumerate(self.production_steps):
-                step_name = step_config["name"]
-                machine_type = step_config["machine_type"]
+            # Process each step in the workflow
+            for step_index, step in enumerate(order.workflow.steps):
+                order.current_step_index = step_index
 
-                logger.info(f"[Order {order.order_id}] Step {idx + 1}/{len(self.production_steps)}: {step_name}")
+                logger.info(f"[Order {order.order_id}] Step {step_index + 1}/{len(order.workflow.steps)}: "
+                           f"{step.operation} on {step.machine_type}")
 
-                # Get machine ID for this step
-                machine_id = self.machine_ids.get(machine_type)
+                # Check if this step can run (inputs available)
+                is_valid, errors = WorkflowValidator.validate_inputs(step, {
+                    **order.product_details,
+                    **order.workflow_state
+                })
+
+                if not is_valid:
+                    raise Exception(f"Step validation failed: {errors}")
+
+                # Get an available machine
+                machine_id = self.get_available_machine(step.machine_type)
                 if not machine_id:
-                    raise Exception(f"No machine registered for type: {machine_type}")
+                    raise Exception(f"No available machine of type: {step.machine_type}")
 
-                # Prepare process data for this step
-                process_data = self._get_process_data_for_step(step_name, order.product_details)
+                # Execute the step
+                step_result = self._execute_step(order, step, machine_id)
 
-                # Execute step
-                step_result = self._execute_step(order.order_id, step_name, machine_type,
-                                                machine_id, process_data)
+                # Store step result
+                order.step_results.append(step_result)
 
-                # Record step result
-                order.steps.append(step_result)
+                # Update workflow state with step outputs
+                for output in step.outputs:
+                    order.workflow_state[output] = True  # Mark as produced
 
-                # PERSIST & FORWARD: Step result
-                self._persist_step(order.order_id, step_result)
-                cloud_publisher.publish_production_event(order.order_id, step_result)
+                # Publish step result
+                self._publish_step_result(order, step, step_result)
 
-                # Publish step status
-                step_status_topic = get_production_status_topic(order.order_id, step_name)
-                self.mqtt_client.publish_json(step_status_topic, step_result)
-
+                # Check if step failed
                 if step_result["status"] == "failed":
                     order.status = "failed"
-                    logger.warning(f"[Order {order.order_id}] Failed at step: {step_name}")
+                    logger.warning(f"[Order {order.order_id}] Failed at step: {step.operation}")
                     break
 
             # If all steps succeeded
@@ -176,8 +168,8 @@ class ProductionOrchestrator:
         except Exception as e:
             order.status = "failed"
             logger.error(f"[Order {order.order_id}] Error: {e}")
-            order.steps.append({
-                "name": "error",
+            order.step_results.append({
+                "step_id": "error",
                 "status": "failed",
                 "error": str(e),
                 "timestamp": time.time()
@@ -185,153 +177,161 @@ class ProductionOrchestrator:
 
         finally:
             order.completed_at = time.time()
-            # PERSIST & FORWARD: Final result
-            self._persist_order(order)
-            cloud_publisher.publish_production_event(order.order_id, order.to_dict())
-            # Publish final result
-            result_topic = get_production_result_topic(order.order_id)
-            self.mqtt_client.publish_json(result_topic, order.to_dict())
 
-            # Publish final status
-            status_topic = get_production_status_topic(order.order_id)
-            self.mqtt_client.publish_json(status_topic, {
-                "order_id": order.order_id,
-                "status": order.status,
-                "timestamp": time.time()
+            # Publish final result
+            self._publish_final_result(order)
+
+    def _execute_step(self, order: ProductionOrder, step: WorkflowStep, machine_id: str) -> Dict:
+        """Execute a single workflow step"""
+        try:
+            # Extract process data for this step
+            process_data = WorkflowValidator.extract_process_data(step, {
+                **order.product_details,
+                **order.workflow_state
             })
 
-    def _persist_order(self, order: ProductionOrder):
-        """Persist/Update the overall production order in PostgreSQL."""
-        if not db_conn or not db_conn.connection:
-            logger.error("DB connection unavailable, skipping order persistence.")
-            return
+            # Add operation name
+            process_data["operation"] = step.operation
 
-        try:
-            with db_conn.get_cursor() as cursor:
-                # Use INSERT ON CONFLICT to handle initial creation and subsequent updates
-                cursor.execute("""
-                    INSERT INTO production_orders 
-                    (order_id, product_name, product_details, status, completed_at)
-                    VALUES (%s, %s, %s, %s, %s)
-                    ON CONFLICT (order_id) DO UPDATE SET 
-                        status = EXCLUDED.status, 
-                        product_details = EXCLUDED.product_details,
-                        completed_at = EXCLUDED.completed_at,
-                        updated_at = NOW()
-                """, (
-                    order.order_id, order.product_name, json.dumps(order.product_details), 
-                    order.status, order.completed_at
-                ))
-            logger.debug(f"Order {order.order_id} persisted/updated.")
-        except Exception as e:
-            logger.error(f"Failed to persist order {order.order_id}: {e}")
-
-    def _persist_step(self, order_id: str, step_result: dict):
-        """Persist a single production step result in PostgreSQL."""
-        if not db_conn or not db_conn.connection:
-            logger.error("DB connection unavailable, skipping step persistence.")
-            return
-            
-        try:
-            with db_conn.get_cursor() as cursor:
-                cursor.execute("""
-                    INSERT INTO production_steps 
-                    (order_id, step_name, machine_id, status, process_data, completed_at, error_message)
-                    VALUES (%s, %s, %s, %s, %s, NOW(), %s)
-                """, (
-                    order_id, 
-                    step_result.get('name'), 
-                    step_result.get('machine_id'), 
-                    step_result.get('status'), 
-                    json.dumps(step_result.get('process_data', {})), 
-                    step_result.get('error')
-                ))
-            logger.debug(f"Step {step_result.get('name')} for order {order_id} persisted.")
-        except Exception as e:
-            logger.error(f"Failed to persist step for order {order_id}: {e}")
-
-    def _get_process_data_for_step(self, step_name, product_details):
-        """Extract relevant process data for a specific step"""
-        if step_name == "cutting":
-            return {
-                "material": product_details["material"],
-                "cut_size": product_details["cut_size"]
-            }
-        elif step_name == "sewing":
-            return {
-                "stitch_type": product_details["stitch_type"],
-                "thread_color": product_details["thread_color"]
-            }
-        elif step_name == "ironing":
-            return {
-                "iron_temperature_setpoint": product_details["iron_temperature_setpoint"],
-                "steam_level": product_details["steam_level"]
-            }
-        elif step_name == "printing":
-            return {
-                "ink_type": product_details["ink_type"]
-            }
-        return {}
-
-    def _execute_step(self, order_id, step_name, machine_type, machine_id, process_data):
-        """Execute a production step on a machine"""
-        try:
-            # Send command to machine via MQTT
-            command_topic = get_machine_command_topic(machine_type, machine_id)
-            response_topic = f"factory/{FACTORY_SITE_ID}/production/{order_id}/step/{step_name}/response"
+            # Send command to machine
+            command_topic = get_machine_command_topic(step.machine_type, machine_id)
+            response_topic = f"factory/{FACTORY_SITE_ID}/production/{order.order_id}/step/{step.step_id}/response"
 
             command = {
                 "command": "process",
                 "process_data": process_data,
-                "order_id": order_id,
+                "order_id": order.order_id,
+                "step_id": step.step_id,
                 "response_topic": response_topic
             }
 
-            # Subscribe to response topic (this would need proper implementation)
-            # For now, we'll simulate the execution
             self.mqtt_client.publish_json(command_topic, command)
 
-            # Simulate processing time
+            # Simulate processing time (in real system, wait for machine response)
             time.sleep(5)
 
             # Simulate success/failure
             import random
             random_value = random.uniform(0, 1)
-            if random_value < self.failure_rate:
+            failure_rate = 0.05  # 5% failure rate
+
+            if random_value < failure_rate:
                 return {
-                    "name": step_name,
+                    "step_id": step.step_id,
+                    "operation": step.operation,
+                    "machine_type": step.machine_type,
                     "machine_id": machine_id,
                     "status": "failed",
                     "process_data": process_data,
-                    "error": "Machine operation failed",
+                    "error": f"Machine operation failed for {step.operation}",
                     "timestamp": time.time()
                 }
             else:
                 return {
-                    "name": step_name,
+                    "step_id": step.step_id,
+                    "operation": step.operation,
+                    "machine_type": step.machine_type,
                     "machine_id": machine_id,
                     "status": "success",
                     "process_data": process_data,
+                    "outputs": step.outputs,
                     "timestamp": time.time()
                 }
 
         except Exception as e:
             return {
-                "name": step_name,
+                "step_id": step.step_id,
+                "operation": step.operation,
                 "status": "failed",
                 "error": str(e),
                 "timestamp": time.time()
             }
 
+    def _publish_status(self, order: ProductionOrder, event: str):
+        """Publish order status update"""
+        status_topic = get_production_status_topic(order.order_id)
+        self.mqtt_client.publish_json(status_topic, {
+            "order_id": order.order_id,
+            "event": event,
+            "status": order.status,
+            "workflow": order.workflow.workflow_name,
+            "current_step": order.current_step_index,
+            "total_steps": len(order.workflow.steps),
+            "timestamp": time.time()
+        })
 
-def signal_handler(sig, frame):
-    """Handle shutdown signals gracefully"""
-    global running
-    logger.info("Shutdown signal received, stopping orchestrator...")
-    running = False
+    def _publish_step_result(self, order: ProductionOrder, step: WorkflowStep, result: Dict):
+        """Publish step execution result"""
+        step_topic = get_production_status_topic(order.order_id, step.step_id)
+        self.mqtt_client.publish_json(step_topic, result)
+
+    def _publish_final_result(self, order: ProductionOrder):
+        """Publish final production result"""
+        result_topic = get_production_result_topic(order.order_id)
+        self.mqtt_client.publish_json(result_topic, order.to_dict())
 
 
-def process_production_queue(orchestrator):
+def register_machine(machine_type: str, machine_id: str):
+    """Register a machine in the registry"""
+    with machine_registry_lock:
+        if machine_type not in machine_registry:
+            machine_registry[machine_type] = []
+        if machine_id not in machine_registry[machine_type]:
+            machine_registry[machine_type].append(machine_id)
+            logger.info(f"Registered machine: {machine_type}/{machine_id}")
+
+
+def handle_machine_registration(topic: str, payload: str):
+    """Handle machine registration messages"""
+    try:
+        data = json.loads(payload)
+        machine_type = data.get("machine_type")
+        machine_id = data.get("machine_id")
+
+        if machine_type and machine_id:
+            register_machine(machine_type, machine_id)
+    except Exception as e:
+        logger.error(f"Error handling machine registration: {e}")
+
+
+def handle_production_request(topic: str, payload: str):
+    """Handle incoming production requests"""
+    global workflow_registry
+
+    try:
+        request = json.loads(payload)
+        product_name = request.get("product_name")
+        workflow_id = request.get("workflow_id")
+        product_type = request.get("product_type")
+        product_details = request.get("product_details", {})
+
+        # Determine which workflow to use
+        workflow = None
+        if workflow_id:
+            workflow = workflow_registry.get(workflow_id)
+        elif product_type:
+            workflow = workflow_registry.get_by_product_type(product_type)
+        else:
+            # Default to standard t-shirt workflow
+            workflow = workflow_registry.get("workflow-tshirt-standard")
+
+        if not workflow:
+            logger.error(f"Workflow not found: {workflow_id or product_type}")
+            return
+
+        # Create and queue order
+        order = ProductionOrder(product_name, workflow, product_details)
+        production_queue.put(order)
+
+        logger.info(f"Queued order {order.order_id} with workflow '{workflow.workflow_name}'")
+
+    except json.JSONDecodeError as e:
+        logger.error(f"Invalid JSON in production request: {e}")
+    except Exception as e:
+        logger.error(f"Error handling production request: {e}")
+
+
+def process_production_queue(orchestrator: WorkflowOrchestrator):
     """Process production orders from the queue"""
     global running
 
@@ -339,6 +339,7 @@ def process_production_queue(orchestrator):
         try:
             if not production_queue.empty():
                 order = production_queue.get()
+
                 with active_orders_lock:
                     active_orders[order.order_id] = order
 
@@ -353,46 +354,32 @@ def process_production_queue(orchestrator):
             logger.error(f"Error processing production queue: {e}")
 
 
-def handle_production_request(topic, payload):
-    """Handle incoming production requests"""
-    try:
-        request = json.loads(payload)
-        product_name = request.get("product_name")
-        product_details = request.get("product_details")
-
-        if product_name:
-            order = ProductionOrder(product_name, product_details)
-            production_queue.put(order)
-            logger.info(f"Added production order to queue: {order.order_id}")
-    except json.JSONDecodeError as e:
-        logger.error(f"Invalid JSON in production request: {e}")
-    except Exception as e:
-        logger.error(f"Error handling production request: {e}")
+def signal_handler(sig, frame):
+    """Handle shutdown signals gracefully"""
+    global running
+    logger.info("Shutdown signal received, stopping orchestrator...")
+    running = False
 
 
 def main():
     """Main service loop"""
-    global running, db_conn, cloud_publisher
+    global running, workflow_registry
 
     # Register signal handlers
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
-    logger.info("Starting Production Orchestrator Service")
+    logger.info("Starting Production Orchestrator V2 (Workflow-based)")
 
-    # 1. Initialize Regular Database (PostgreSQL) Connection
-    db_conn = DatabaseConnection(
-        host=DB_HOST, port=DB_PORT, database=DB_NAME,
-        user=DB_USER, password=DB_PASSWORD
-    )
-    if not db_conn.connect():
-        logger.error("Failed to connect to PostgreSQL, exiting...")
-        return
-    db_conn.initialize_schema() # Ensure tables are ready
+    # Initialize workflow registry
+    workflow_registry = WorkflowRegistry()
+    logger.info(f"Loaded {len(workflow_registry.list_all())} workflows:")
+    for workflow in workflow_registry.list_all():
+        logger.info(f"  - {workflow.workflow_name} ({workflow.product_type}) - {len(workflow.steps)} steps")
 
     # Initialize MQTT client
-    mqtt_client = MQTTClient(
-        client_id="production-orchestrator",
+    mqtt_client = MQTTClientWrapper(
+        client_id="production-orchestrator-v2",
         broker=MQTT_BROKER,
         port=MQTT_PORT,
         keepalive=MQTT_KEEPALIVE
@@ -403,30 +390,30 @@ def main():
         logger.error("Failed to connect to MQTT broker, exiting...")
         return
 
-            
-    # 3. Initialize Cloud Publisher
-    cloud_publisher = CloudPublisher(mqtt_client, FACTORY_SITE_ID)
-
     # Initialize orchestrator
-    orchestrator = ProductionOrchestrator(mqtt_client)
+    orchestrator = WorkflowOrchestrator(mqtt_client, workflow_registry)
 
-    # Register known machines (in real implementation, machines would register themselves)
-    orchestrator.register_machine("cutting", "cutting-01")
-    orchestrator.register_machine("sewing", "sewing-01")
-    orchestrator.register_machine("ironing", "ironing-01")
-    orchestrator.register_machine("printing", "printing-01")
+    # Register default machines (in real system, machines register themselves)
+    register_machine("cutting", "cutting-01")
+    register_machine("sewing", "sewing-01")
+    register_machine("ironing", "ironing-01")
+    register_machine("printing", "printing-01")
 
-    # Subscribe to production request topic
+    # Subscribe to topics
     request_topic = f"factory/{FACTORY_SITE_ID}/production/request"
+    registration_topic = f"factory/{FACTORY_SITE_ID}/machine/+/+/register"
+
     mqtt_client.subscribe(request_topic, handle_production_request)
+    mqtt_client.subscribe(registration_topic, handle_machine_registration)
 
     # Start MQTT loop
     mqtt_client.loop_start()
 
-    logger.info(f"Production orchestrator is running...")
+    logger.info(f"Orchestrator is running...")
     logger.info(f"Listening for production requests on: {request_topic}")
+    logger.info(f"Available product types: {', '.join(workflow_registry.list_product_types())}")
 
-    # Start production queue processor in a separate thread
+    # Start production queue processor
     queue_thread = Thread(target=process_production_queue, args=(orchestrator,), daemon=True)
     queue_thread.start()
 
@@ -441,8 +428,6 @@ def main():
         logger.info("Shutting down...")
         mqtt_client.loop_stop()
         mqtt_client.disconnect()
-        db_conn.disconnect() # ADD disconnect for regular DB
-
         logger.info("Production orchestrator stopped")
 
 

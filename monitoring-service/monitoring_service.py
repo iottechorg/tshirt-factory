@@ -15,15 +15,19 @@ from threading import Lock
 sys.path.insert(0, '/app/shared')
 
 from mqtt_client import MQTTClientWrapper
-from database import TimeSeriesConnection, DatabaseConnection # ADD DatabaseConnection
-from cloud_publisher import CloudPublisher # ADD CloudPublisher
+from database import TimeSeriesConnection, DatabaseConnection
+from cloud_publisher import CloudPublisher
 from config import (
     MQTT_BROKER, MQTT_PORT, MQTT_KEEPALIVE,
     FACTORY_SITE_ID,
     TIMESCALE_HOST, TIMESCALE_PORT, TIMESCALE_DB, TIMESCALE_USER, TIMESCALE_PASSWORD,
-    DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD, # ADD regular DB config
+    DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD,
     get_machine_command_topic
 )
+
+# Get factory ID from environment (for machine topic path)
+import os
+FACTORY_ID = os.getenv("FACTORY_ID", "tshirt-factory-001")
 
 
 # Configure logging
@@ -35,15 +39,12 @@ logger = logging.getLogger(__name__)
 
 # --- Global Variables ---
 running = True
-# A thread-safe dictionary to hold the latest state of all known machines
 active_machines = {}
 active_machines_lock = Lock()
-# Global MQTT client to be accessible by command handlers
 mqtt_client = None
-# Global TimescaleDB connection
 ts_conn = None
-db_conn = None      # ADD regular DB connection
-cloud_publisher = None # ADD cloud publisher instance
+db_conn = None
+cloud_publisher = None
 
 
 def signal_handler(sig, frame):
@@ -54,22 +55,35 @@ def signal_handler(sig, frame):
 
 
 def insert_telemetry_to_db(machine_id, machine_type, telemetry_data):
-    """Insert telemetry data into TimescaleDB."""
-    if not ts_conn or not ts_conn.connection:
-        logger.error("TimescaleDB connection is not available. Cannot insert telemetry.")
-        return
-
-    try:
-        # The telemetry_data payload contains sensor_data and runtime_state
-        sensor_data = telemetry_data.get("sensor_data", {})
-        runtime_state = telemetry_data.get("runtime_state", "unknown")
-
-        # The db.py script expects to insert data sensor by sensor
-        ts_conn.insert_sensor_data(machine_id, machine_type, sensor_data, runtime_state)
-        logger.debug(f"Successfully inserted telemetry for {machine_id} into TimescaleDB.")
-
-    except Exception as e:
-        logger.error(f"Failed to insert telemetry for {machine_id} into TimescaleDB: {e}")
+    """Insert telemetry data into TimescaleDB (primary) or PostgreSQL (fallback)."""
+    global ts_conn, db_conn
+    
+    # Try TimescaleDB first (preferred for time-series)
+    if ts_conn and ts_conn.connection:
+        try:
+            sensor_data = telemetry_data.get("sensor_data", {})
+            runtime_state = telemetry_data.get("runtime_state", "unknown")
+            ts_conn.insert_sensor_data(machine_id, machine_type, sensor_data, runtime_state)
+            logger.debug(f"Telemetry for {machine_id} inserted into TimescaleDB")
+            return
+        except Exception as e:
+            logger.debug(f"TimescaleDB insert failed: {e}, falling back to PostgreSQL")
+    
+    # Fall back to PostgreSQL
+    if db_conn and db_conn.connection:
+        try:
+            runtime_state = telemetry_data.get("runtime_state", "unknown")
+            sensor_data = telemetry_data.get("sensor_data", {})
+            telemetry_json = json.dumps(sensor_data, ensure_ascii=False)
+            
+            with db_conn.get_cursor() as cursor:
+                cursor.execute("""
+                    INSERT INTO machine_telemetry (machine_id, machine_type, sensor_data, runtime_state)
+                    VALUES (%s, %s, %s, %s)
+                """, (machine_id, machine_type, telemetry_json, runtime_state))
+            logger.debug(f"Telemetry for {machine_id} inserted into PostgreSQL")
+        except Exception as e:
+            logger.error(f"Failed to insert telemetry for {machine_id}: {e}")
 
 
 def check_machine_health(machine_id, status_data):
@@ -89,22 +103,26 @@ def handle_machine_message(topic, payload):
     Now persists data locally AND forwards to the cloud.
     """
     global cloud_publisher
+    logger.info(f"✓ handle_machine_message INVOKED - topic: {topic}")
     try:
         parts = topic.split('/')
-        if len(parts) != 6:
+        # Expected: factory/{factory_id}/machines/{machine_id}/{data_type}
+        if len(parts) != 5:
+            logger.warning(f"⚠ Invalid topic format (expected 5 parts, got {len(parts)}): {topic}")
             return
 
-        machine_type = parts[3]
-        machine_id = parts[4]
-        data_type = parts[5] # "status" or "telemetry"
+        factory_id = parts[1]
+        machine_id = parts[3]
+        data_type = parts[4] # "status" or "telemetry"
 
+        logger.info(f"✓ Parsing message: factory={factory_id}, machine={machine_id}, type={data_type}")
         data = json.loads(payload)
         
         with active_machines_lock:
             # If this is the first time we see this machine, initialize its entry
             if machine_id not in active_machines:
-                active_machines[machine_id] = {"machine_type": machine_type}
-                logger.info(f"Discovered new machine: {machine_id} of type {machine_type}")
+                active_machines[machine_id] = {"machine_type": machine_id.rsplit('-', 1)[0]}  # Extract type from ID
+                logger.info(f"Discovered new machine: {machine_id}")
 
             # Update the machine's state
             active_machines[machine_id][f'last_{data_type}'] = data
@@ -121,7 +139,11 @@ def handle_machine_message(topic, payload):
             cloud_publisher.publish_telemetry(machine_id, data)
 
         elif data_type == "telemetry":
-            logger.debug(f"Received TELEMETRY from {machine_id}")
+            logger.info(f"Received TELEMETRY from {machine_id}")
+            
+            # Extract machine type from data or active_machines
+            with active_machines_lock:
+                machine_type = active_machines.get(machine_id, {}).get('machine_type', 'unknown')
             
             # 1. PERSIST (TimescaleDB)
             insert_telemetry_to_db(machine_id, machine_type, data)
@@ -192,14 +214,13 @@ def main():
     """Main service loop"""
     global running, mqtt_client, ts_conn, db_conn, cloud_publisher
 
-
     # Register signal handlers for graceful shutdown
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
     logger.info("Starting Factory Monitoring Service")
 
-     # 1. Initialize Regular Database (PostgreSQL) Connection
+    # 1. Initialize Regular Database (PostgreSQL) Connection
     db_conn = DatabaseConnection(
         host=DB_HOST, port=DB_PORT, database=DB_NAME,
         user=DB_USER, password=DB_PASSWORD
@@ -209,29 +230,20 @@ def main():
         return
     db_conn.initialize_schema() # Ensure tables are ready
 
-      # 2. Initialize TimescaleDB Connection
+    # 2. Initialize TimescaleDB Connection (for time-series data)
     ts_conn = TimeSeriesConnection(
         host=TIMESCALE_HOST, port=TIMESCALE_PORT, database=TIMESCALE_DB,
         user=TIMESCALE_USER, password=TIMESCALE_PASSWORD
     )
     if not ts_conn.connect():
-        logger.error("Failed to connect to TimescaleDB, exiting...")
-        return
-    ts_conn.initialize_schema()
-
-    # Initialize TimescaleDB connection
-    ts_conn = TimeSeriesConnection(
-        host=TIMESCALE_HOST, port=TIMESCALE_PORT, database=TIMESCALE_DB,
-        user=TIMESCALE_USER, password=TIMESCALE_PASSWORD
-    )
-    if not ts_conn.connect():
-        logger.error("Failed to connect to TimescaleDB, exiting...")
-        return
-    # Ensure the necessary tables exist
-    ts_conn.initialize_schema()
+        logger.warning("Failed to connect to TimescaleDB, will use PostgreSQL for telemetry")
+        ts_conn = None
+    else:
+        ts_conn.initialize_schema()
+        logger.info("Connected to TimescaleDB for time-series data")
 
     # Initialize MQTT client
-    mqtt_client = MQTTClient(
+    mqtt_client = MQTTClientWrapper(
         client_id="factory-monitoring-service",
         broker=MQTT_BROKER, port=MQTT_PORT, keepalive=MQTT_KEEPALIVE
     )
@@ -239,12 +251,12 @@ def main():
         logger.error("Failed to connect to MQTT broker, exiting...")
         return
 
-           
     # 4. Initialize Cloud Publisher
     cloud_publisher = CloudPublisher(mqtt_client, FACTORY_SITE_ID)
 
     # Subscribe to all machine status and telemetry topics using a wildcard
-    machine_data_topic = f"factory/{FACTORY_SITE_ID}/machine/+/+/+"
+    # Topic pattern: factory/{factory_id}/machines/{machine_id}/{status|telemetry}
+    machine_data_topic = f"factory/{FACTORY_ID}/machines/+/+"
     mqtt_client.subscribe(machine_data_topic, handle_machine_message)
     logger.info(f"Subscribed to machine data on topic: {machine_data_topic}")
 

@@ -325,7 +325,6 @@ class {class_name}Machine(BaseMachine):
     def generate_docker_compose(self) -> str:
         """Generate docker-compose configuration for factory in YAML format"""
         compose = {
-            'version': '3.8',
             'volumes': {
                 'mosquitto_data': None,
                 'mosquitto_log': None,
@@ -365,9 +364,33 @@ class {class_name}Machine(BaseMachine):
                 'POSTGRES_DB': self.config['database_config']['connection']['database']
             },
             'ports': ['5432:5432'],
-            'volumes': ['postgres_data:/var/lib/postgresql/data'],
+            'volumes': [
+                'postgres_data:/var/lib/postgresql/data',
+                './database/init-postgres.sql:/docker-entrypoint-initdb.d/init-postgres.sql'
+            ],
             'networks': [f"{self.config['factory_id']}-network"],
             'restart': 'unless-stopped'
+        }
+
+        # Add TimescaleDB for time-series data
+        compose['services']['timescaledb'] = {
+            'image': 'timescale/timescaledb:latest-pg15',
+            'container_name': f"{self.config['factory_id']}-timescaledb",
+            'environment': {
+                'POSTGRES_USER': 'factory_user',
+                'POSTGRES_PASSWORD': 'factory_pass',
+                'POSTGRES_DB': 'factory_timeseries'
+            },
+            'ports': ['5433:5432'],
+            'volumes': ['timescaledb_data:/var/lib/postgresql/data'],
+            'networks': [f"{self.config['factory_id']}-network"],
+            'restart': 'unless-stopped',
+            'healthcheck': {
+                'test': ['CMD', 'pg_isready', '-U', 'factory_user'],
+                'interval': '10s',
+                'timeout': '5s',
+                'retries': 5
+            }
         }
 
         # Add machines - FIXED: build context is now "." instead of "./services"
@@ -611,6 +634,7 @@ class MachineService:
 
         # Connect MQTT
         self.mqtt_client.connect()
+        self.mqtt_client.loop_start()
 
         # Subscribe to topics
         self.mqtt_client.subscribe(self.command_topic, self.on_command)
@@ -656,6 +680,105 @@ if __name__ == "__main__":
         # Make it executable
         os.chmod(service_file, 0o755)
 
+    def generate_database_init_script(self) -> str:
+        """Generate PostgreSQL initialization script for the factory"""
+        db_name = self.config['database_config']['connection']['database']
+        
+        init_sql = f'''-- PostgreSQL Initialization Script for Factory Database
+
+-- Create database user if not exists
+DO
+$do$
+BEGIN
+   IF NOT EXISTS (
+      SELECT FROM pg_catalog.pg_user
+      WHERE usename = 'factory_user'
+   ) THEN
+      CREATE USER factory_user WITH PASSWORD 'factory_pass';
+   END IF;
+END
+$do$;
+
+-- Create main database (if not connected via postgres service environment variable)
+CREATE DATABASE IF NOT EXISTS {db_name};
+GRANT ALL PRIVILEGES ON DATABASE {db_name} TO factory_user;
+
+-- Connect to the database
+\\c {db_name};
+
+-- Machines table
+CREATE TABLE IF NOT EXISTS machines (
+    machine_id VARCHAR(100) PRIMARY KEY,
+    machine_type VARCHAR(50) NOT NULL,
+    machine_name VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Production orders table
+CREATE TABLE IF NOT EXISTS production_orders (
+    order_id VARCHAR(100) PRIMARY KEY,
+    product_name VARCHAR(200) NOT NULL,
+    product_details JSONB,
+    status VARCHAR(50) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP
+);
+
+-- Production steps table
+CREATE TABLE IF NOT EXISTS production_steps (
+    step_id SERIAL PRIMARY KEY,
+    order_id VARCHAR(100) REFERENCES production_orders(order_id),
+    step_name VARCHAR(50) NOT NULL,
+    machine_id VARCHAR(100) REFERENCES machines(machine_id),
+    status VARCHAR(50) NOT NULL,
+    process_data JSONB,
+    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP,
+    error_message TEXT
+);
+
+-- Machine status log table
+CREATE TABLE IF NOT EXISTS machine_status_log (
+    log_id SERIAL PRIMARY KEY,
+    machine_id VARCHAR(100) REFERENCES machines(machine_id),
+    runtime_state VARCHAR(50) NOT NULL,
+    total_operations INTEGER,
+    failed_operations INTEGER,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Machine telemetry table (for PostgreSQL storage when TimescaleDB unavailable)
+CREATE TABLE IF NOT EXISTS machine_telemetry (
+    telemetry_id SERIAL PRIMARY KEY,
+    machine_id VARCHAR(100) NOT NULL,
+    machine_type VARCHAR(50) NOT NULL,
+    sensor_data JSONB NOT NULL,
+    runtime_state VARCHAR(50) NOT NULL,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create indexes for better performance
+CREATE INDEX IF NOT EXISTS idx_orders_status ON production_orders(status);
+CREATE INDEX IF NOT EXISTS idx_orders_created ON production_orders(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_steps_order ON production_steps(order_id);
+CREATE INDEX IF NOT EXISTS idx_status_log_machine ON machine_status_log(machine_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_telemetry_machine ON machine_telemetry(machine_id, timestamp DESC);
+
+-- Grant permissions
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO factory_user;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO factory_user;
+
+-- Insert sample machines
+INSERT INTO machines (machine_id, machine_type, machine_name) VALUES
+    ('cutting-01', 'cutting', 'Cutting Machine 01'),
+    ('sewing-01', 'sewing', 'Sewing Machine 01'),
+    ('ironing-01', 'ironing', 'Ironing Machine 01'),
+    ('printing-01', 'printing', 'Printing Machine 01')
+ON CONFLICT (machine_id) DO NOTHING;
+'''
+        return init_sql
 
     def generate_mqtt_config(self, factory_dir: Path):
         """Generate mosquitto.conf for MQTT broker"""
@@ -725,12 +848,19 @@ log_type all
                 'FACTORY_ID': factory_id,
                 'MQTT_BROKER': 'mqttbroker',
                 'MQTT_PORT': 1883,
-                'POSTGRES_HOST': 'postgres',
-                'POSTGRES_DB': self.config['database_config']['connection']['database'],
-                'POSTGRES_USER': 'factory_user',
-                'POSTGRES_PASSWORD': 'factory_pass'
+                'FACTORY_SITE_ID': 'site-01',
+                'DB_HOST': 'postgres',
+                'DB_PORT': 5432,
+                'DB_NAME': self.config['database_config']['connection']['database'],
+                'DB_USER': 'factory_user',
+                'DB_PASSWORD': 'factory_pass',
+                'TIMESCALE_HOST': 'timescaledb',
+                'TIMESCALE_PORT': 5432,
+                'TIMESCALE_DB': 'factory_timeseries',
+                'TIMESCALE_USER': 'factory_user',
+                'TIMESCALE_PASSWORD': 'factory_pass'
             },
-            'depends_on': ['mqttbroker', 'postgres'],
+            'depends_on': ['mqttbroker', 'postgres', 'timescaledb'],
             'networks': [network],
             'restart': 'unless-stopped'
         }
@@ -848,6 +978,16 @@ CMD ["python3", "monitoring_service.py"]
         machines_dir.mkdir(exist_ok=True)
         workflows_dir.mkdir(exist_ok=True)
         mqtt_dir.mkdir(exist_ok=True)
+        
+        # Create database directory and initialization script
+        db_dir = factory_dir / "database"
+        db_dir.mkdir(exist_ok=True)
+        
+        # Generate database initialization script
+        init_sql = self.generate_database_init_script()
+        init_sql_file = db_dir / "init-postgres.sql"
+        with open(init_sql_file, 'w') as f:
+            f.write(init_sql)
 
         # Generate machine classes and Dockerfiles
         print("Generating machine classes and Dockerfiles...")

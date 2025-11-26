@@ -304,10 +304,10 @@
   ],
 
   "production_config": {
-    "mode": "on-demand",
+    "mode": "on_demand",
     "target_rate": {
       "value": 100,
-      "unit": "tshirts_per_day"
+      "unit": "units_per_day"
     },
     "shift_schedule": {
       "shifts_per_day": 2,

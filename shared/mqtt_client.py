@@ -7,9 +7,22 @@ import logging
 import json
 import time
 import ssl
+import re
 from typing import Callable, Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
+
+
+def mqtt_topic_matches(subscription: str, topic: str) -> bool:
+    """
+    Check if a topic matches a subscription pattern with wildcards.
+    + matches a single level
+    # matches multiple levels
+    """
+    # Convert MQTT wildcards to regex
+    pattern = subscription.replace('+', '[^/]+').replace('#', '.*')
+    pattern = f'^{pattern}$'
+    return re.match(pattern, topic) is not None
 
 
 class MQTTClientWrapper:
@@ -80,13 +93,13 @@ class MQTTClientWrapper:
                 logger.debug(f"[{self.client_id}] Connection flags: {flags}")
 
             # Re-subscribe to all topics after reconnection
-            for topic, qos in self.subscriptions.items():
-                result, mid = self.client.subscribe(topic, qos.get('qos', 0))
+            for topic, callback_info in self.subscriptions.items():
+                qos_level = callback_info.get('qos', 0)
+                result, mid = self.client.subscribe(topic, qos_level)
                 if result == mqtt.MQTT_ERR_SUCCESS:
-                    if self.enable_logs:
-                        logger.info(f"[{self.client_id}] Re-subscribed to topic: {topic}")
+                    logger.info(f"[{self.client_id}] ✓ Re-subscribed to topic: {topic} (QoS: {qos_level})")
                 else:
-                    logger.error(f"[{self.client_id}] Failed to re-subscribe to topic: {topic}, error: {result}")
+                    logger.error(f"[{self.client_id}] ✗ Failed to re-subscribe to topic: {topic}, error: {result}")
         else:
             error_messages = {
                 1: "Connection refused - incorrect protocol version",
@@ -115,15 +128,21 @@ class MQTTClientWrapper:
         payload = msg.payload.decode('utf-8')
 
         if self.enable_logs:
-            logger.debug(f"[{self.client_id}] Received message on topic '{topic}': {payload[:100]}")
+            logger.info(f"[{self.client_id}] ✓ RECEIVED message on topic '{topic}': {payload[:200]}")
 
-        # Call registered callback for this topic
-        if topic in self.subscriptions:
-            try:
-                callback_info = self.subscriptions[topic]
-                callback_info['callback'](topic, payload)
-            except Exception as e:
-                logger.error(f"[{self.client_id}] Error in message callback for topic '{topic}': {e}")
+        # Match topic against all subscription patterns (including wildcards)
+        matched = False
+        for sub_pattern, callback_info in self.subscriptions.items():
+            if mqtt_topic_matches(sub_pattern, topic):
+                matched = True
+                try:
+                    logger.info(f"[{self.client_id}] ✓ Matched pattern '{sub_pattern}' - invoking callback")
+                    callback_info['callback'](topic, payload)
+                except Exception as e:
+                    logger.error(f"[{self.client_id}] ✗ Error in message callback for topic '{topic}': {e}", exc_info=True)
+        
+        if not matched:
+            logger.warning(f"[{self.client_id}] ⚠ Message received but no subscription matched topic '{topic}'")
 
     def _on_publish(self, client, userdata, mid):
         """Callback when message is published"""
@@ -218,23 +237,29 @@ class MQTTClientWrapper:
                 return False
         return True
 
-    def publish(self, topic: str, message: str, qos: int = 0, retain: bool = False) -> bool:
-        """Publish a message to a topic"""
-        if self.is_connected:
-            try:
-                msg_info = self.client.publish(topic, message, qos=qos, retain=retain)
-                if msg_info.rc == mqtt.MQTT_ERR_SUCCESS:
-                    if self.enable_logs:
-                        logger.debug(f"[{self.client_id}] Published to '{topic}': {message[:100]}")
-                    return True
-                else:
-                    logger.warning(f"[{self.client_id}] Failed to publish to '{topic}', error: {msg_info.rc}")
-                    return False
-            except Exception as e:
-                logger.error(f"[{self.client_id}] Error publishing message: {e}")
-                return False
-        else:
+    def publish(self, topic: str, message, qos: int = 0, retain: bool = False) -> bool:
+        """Publish a message to a topic (auto-converts dict to JSON)"""
+        if not self.is_connected:
             logger.warning(f"[{self.client_id}] Not connected, message not published to '{topic}'")
+            return False
+        
+        try:
+            # Auto-convert dict to JSON string
+            if isinstance(message, dict):
+                payload = json.dumps(message, ensure_ascii=False)
+            else:
+                payload = message
+            
+            msg_info = self.client.publish(topic, payload, qos=qos, retain=retain)
+            if msg_info.rc == mqtt.MQTT_ERR_SUCCESS:
+                if self.enable_logs:
+                    logger.debug(f"[{self.client_id}] Published to '{topic}': {str(payload)[:100]}")
+                return True
+            else:
+                logger.warning(f"[{self.client_id}] Failed to publish to '{topic}', error: {msg_info.rc}")
+                return False
+        except Exception as e:
+            logger.error(f"[{self.client_id}] Error publishing message: {e}")
             return False
 
     def publish_json(self, topic: str, data: Dict[str, Any], qos: int = 0, retain: bool = False) -> bool:

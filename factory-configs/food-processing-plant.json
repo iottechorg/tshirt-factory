@@ -27,7 +27,7 @@
         "line": "baking",
         "position": "O1"
       },
-      "overrides": {
+      "config_overrides": {
         "sensors": {
           "temperature": {
             "range": {

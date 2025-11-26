@@ -27,7 +27,7 @@
         "line": "welding",
         "position": "W1"
       },
-      "overrides": {
+      "config_overrides": {
         "telemetry_config": {
           "publish_interval": 3.0
         },

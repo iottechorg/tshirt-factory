@@ -7,7 +7,7 @@ import os
 import random
 import logging
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../shared'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), './shared'))
 from base_machine import BaseMachine
 
 logger = logging.getLogger(__name__)

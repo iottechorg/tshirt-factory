@@ -14,7 +14,7 @@ from threading import Thread, Lock
 from typing import Dict, List, Optional
 
 # Add shared modules to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../shared'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), './shared'))
 
 from mqtt_client import MQTTClient
 from workflow_engine import WorkflowRegistry, WorkflowDefinition, WorkflowStep, WorkflowValidator
@@ -39,6 +39,12 @@ active_orders = {}
 active_orders_lock = Lock()
 machine_registry = {}  # machine_type -> [machine_ids]
 machine_registry_lock = Lock()
+machine_states = {}  # machine_id -> {status, current_order, last_update}
+machine_states_lock = Lock()
+machine_responses = {}  # response_topic -> response_data
+machine_responses_lock = Lock()
+machine_performance = {}  # machine_id -> {total_ops, failures, avg_time}
+machine_performance_lock = Lock()
 
 
 class ProductionOrder:
@@ -103,13 +109,21 @@ class WorkflowOrchestrator:
         self.workflow_registry = workflow_registry
 
     def get_available_machine(self, machine_type: str) -> Optional[str]:
-        """Get an available machine of the specified type (simple round-robin for now)"""
+        """Get an available machine of the specified type"""
         with machine_registry_lock:
             machines = machine_registry.get(machine_type, [])
-            if machines:
-                # Simple: return first available (in real system, check machine status)
-                return machines[0]
-            return None
+            if not machines:
+                return None
+
+            # Find first available machine (not busy)
+            with machine_states_lock:
+                for machine_id in machines:
+                    state = machine_states.get(machine_id, {})
+                    if state.get("status") != "busy":
+                        return machine_id
+
+                # If all busy, return first one (will queue)
+                return machines[0] if machines else None
 
     def process_order(self, order: ProductionOrder):
         """Process a production order through its workflow"""
@@ -182,70 +196,169 @@ class WorkflowOrchestrator:
             self._publish_final_result(order)
 
     def _execute_step(self, order: ProductionOrder, step: WorkflowStep, machine_id: str) -> Dict:
-        """Execute a single workflow step"""
-        try:
-            # Extract process data for this step
-            process_data = WorkflowValidator.extract_process_data(step, {
-                **order.product_details,
-                **order.workflow_state
-            })
+        """Execute a single workflow step with retry logic"""
+        max_retries = step.retry_count
+        attempt = 0
 
-            # Add operation name
-            process_data["operation"] = step.operation
+        while attempt <= max_retries:
+            try:
+                if attempt > 0:
+                    logger.info(f"[Order {order.order_id}] Retrying step {step.step_id}, attempt {attempt + 1}/{max_retries + 1}")
 
-            # Send command to machine
-            command_topic = get_machine_command_topic(step.machine_type, machine_id)
-            response_topic = f"factory/{FACTORY_SITE_ID}/production/{order.order_id}/step/{step.step_id}/response"
+                # Extract process data for this step
+                process_data = WorkflowValidator.extract_process_data(step, {
+                    **order.product_details,
+                    **order.workflow_state
+                })
 
-            command = {
-                "command": "process",
-                "process_data": process_data,
-                "order_id": order.order_id,
-                "step_id": step.step_id,
-                "response_topic": response_topic
-            }
+                # Add operation name
+                process_data["operation"] = step.operation
 
-            self.mqtt_client.publish_json(command_topic, command)
+                # Send command to machine
+                command_topic = get_machine_command_topic(step.machine_type, machine_id)
+                response_topic = f"factory/{FACTORY_SITE_ID}/production/{order.order_id}/step/{step.step_id}/response"
 
-            # Simulate processing time (in real system, wait for machine response)
-            time.sleep(5)
-
-            # Simulate success/failure
-            import random
-            random_value = random.uniform(0, 1)
-            failure_rate = 0.05  # 5% failure rate
-
-            if random_value < failure_rate:
-                return {
-                    "step_id": step.step_id,
-                    "operation": step.operation,
-                    "machine_type": step.machine_type,
-                    "machine_id": machine_id,
-                    "status": "failed",
+                command = {
+                    "command": "process",
                     "process_data": process_data,
-                    "error": f"Machine operation failed for {step.operation}",
-                    "timestamp": time.time()
-                }
-            else:
-                return {
+                    "order_id": order.order_id,
                     "step_id": step.step_id,
-                    "operation": step.operation,
-                    "machine_type": step.machine_type,
-                    "machine_id": machine_id,
-                    "status": "success",
-                    "process_data": process_data,
-                    "outputs": step.outputs,
-                    "timestamp": time.time()
+                    "response_topic": response_topic
                 }
 
-        except Exception as e:
-            return {
-                "step_id": step.step_id,
-                "operation": step.operation,
-                "status": "failed",
-                "error": str(e),
-                "timestamp": time.time()
+                # Mark machine as busy
+                self._set_machine_state(machine_id, "busy", order.order_id)
+
+                # Send command
+                self.mqtt_client.publish_json(command_topic, command)
+                logger.debug(f"[Order {order.order_id}] Sent command to {machine_id} on {command_topic}")
+
+                # Wait for machine response
+                start_time = time.time()
+                result = self._wait_for_machine_response(response_topic, step.timeout_seconds)
+
+                if result:
+                    elapsed_time = time.time() - start_time
+
+                    # Track performance
+                    self._track_machine_performance(machine_id, elapsed_time, result.get("status") == "failed")
+
+                    # Mark machine as available
+                    self._set_machine_state(machine_id, "idle", None)
+
+                    if result.get("status") == "success":
+                        logger.info(f"[Order {order.order_id}] Step {step.step_id} completed in {elapsed_time:.2f}s")
+                        return {
+                            "step_id": step.step_id,
+                            "operation": step.operation,
+                            "machine_type": step.machine_type,
+                            "machine_id": machine_id,
+                            "status": "success",
+                            "process_data": process_data,
+                            "outputs": step.outputs,
+                            "elapsed_time": elapsed_time,
+                            "timestamp": time.time()
+                        }
+                    else:
+                        # Machine reported failure
+                        error_msg = result.get("error", "Machine operation failed")
+                        logger.warning(f"[Order {order.order_id}] Step {step.step_id} failed: {error_msg}")
+
+                        if attempt < max_retries:
+                            attempt += 1
+                            time.sleep(2)  # Brief delay before retry
+                            continue
+                        else:
+                            return {
+                                "step_id": step.step_id,
+                                "operation": step.operation,
+                                "machine_type": step.machine_type,
+                                "machine_id": machine_id,
+                                "status": "failed",
+                                "process_data": process_data,
+                                "error": error_msg,
+                                "attempts": attempt + 1,
+                                "timestamp": time.time()
+                            }
+                else:
+                    # Timeout waiting for response
+                    logger.error(f"[Order {order.order_id}] Timeout waiting for response from {machine_id}")
+                    self._set_machine_state(machine_id, "error", None)
+
+                    if attempt < max_retries:
+                        attempt += 1
+                        time.sleep(2)
+                        continue
+                    else:
+                        return {
+                            "step_id": step.step_id,
+                            "operation": step.operation,
+                            "machine_type": step.machine_type,
+                            "machine_id": machine_id,
+                            "status": "failed",
+                            "error": f"Timeout waiting for machine response ({step.timeout_seconds}s)",
+                            "attempts": attempt + 1,
+                            "timestamp": time.time()
+                        }
+
+            except Exception as e:
+                logger.error(f"[Order {order.order_id}] Error executing step: {e}")
+                self._set_machine_state(machine_id, "error", None)
+
+                if attempt < max_retries:
+                    attempt += 1
+                    time.sleep(2)
+                    continue
+                else:
+                    return {
+                        "step_id": step.step_id,
+                        "operation": step.operation,
+                        "status": "failed",
+                        "error": str(e),
+                        "attempts": attempt + 1,
+                        "timestamp": time.time()
+                    }
+
+    def _wait_for_machine_response(self, response_topic: str, timeout_seconds: int) -> Optional[Dict]:
+        """Wait for machine response on specified topic"""
+        start_time = time.time()
+
+        while time.time() - start_time < timeout_seconds:
+            with machine_responses_lock:
+                if response_topic in machine_responses:
+                    response = machine_responses.pop(response_topic)
+                    return response
+
+            time.sleep(0.1)  # Check every 100ms
+
+        return None  # Timeout
+
+    def _set_machine_state(self, machine_id: str, status: str, order_id: Optional[str]):
+        """Update machine state"""
+        with machine_states_lock:
+            machine_states[machine_id] = {
+                "status": status,
+                "current_order": order_id,
+                "last_update": time.time()
             }
+
+    def _track_machine_performance(self, machine_id: str, elapsed_time: float, failed: bool):
+        """Track machine performance metrics"""
+        with machine_performance_lock:
+            if machine_id not in machine_performance:
+                machine_performance[machine_id] = {
+                    "total_ops": 0,
+                    "failures": 0,
+                    "total_time": 0.0,
+                    "avg_time": 0.0
+                }
+
+            perf = machine_performance[machine_id]
+            perf["total_ops"] += 1
+            if failed:
+                perf["failures"] += 1
+            perf["total_time"] += elapsed_time
+            perf["avg_time"] = perf["total_time"] / perf["total_ops"]
 
     def _publish_status(self, order: ProductionOrder, event: str):
         """Publish order status update"""
@@ -294,6 +407,22 @@ def handle_machine_registration(topic: str, payload: str):
         logger.error(f"Error handling machine registration: {e}")
 
 
+def handle_machine_response(topic: str, payload: str):
+    """Handle machine response messages"""
+    try:
+        response = json.loads(payload)
+
+        # Store response in the responses dict
+        with machine_responses_lock:
+            machine_responses[topic] = response
+
+        logger.debug(f"Received machine response on {topic}: {response.get('status')}")
+    except json.JSONDecodeError as e:
+        logger.error(f"Invalid JSON in machine response: {e}")
+    except Exception as e:
+        logger.error(f"Error handling machine response: {e}")
+
+
 def handle_production_request(topic: str, payload: str):
     """Handle incoming production requests"""
     global workflow_registry
@@ -331,6 +460,79 @@ def handle_production_request(topic: str, payload: str):
         logger.error(f"Error handling production request: {e}")
 
 
+def handle_workflow_adjustment(topic: str, payload: str):
+    """Handle workflow adjustment requests"""
+    global workflow_registry
+
+    try:
+        request = json.loads(payload)
+        action = request.get("action")  # adjust_timeout, adjust_retry, etc.
+        workflow_id = request.get("workflow_id")
+        step_id = request.get("step_id")
+        parameter = request.get("parameter")
+        value = request.get("value")
+
+        workflow = workflow_registry.get(workflow_id)
+        if not workflow:
+            logger.error(f"Workflow not found: {workflow_id}")
+            return
+
+        # Find the step
+        step = next((s for s in workflow.steps if s.step_id == step_id), None)
+        if not step:
+            logger.error(f"Step not found: {step_id}")
+            return
+
+        # Apply adjustment
+        if parameter == "timeout_seconds":
+            step.timeout_seconds = int(value)
+            logger.info(f"Adjusted {workflow_id}/{step_id} timeout to {value}s")
+        elif parameter == "retry_count":
+            step.retry_count = int(value)
+            logger.info(f"Adjusted {workflow_id}/{step_id} retry count to {value}")
+        else:
+            logger.warning(f"Unknown parameter: {parameter}")
+
+    except json.JSONDecodeError as e:
+        logger.error(f"Invalid JSON in workflow adjustment: {e}")
+    except Exception as e:
+        logger.error(f"Error handling workflow adjustment: {e}")
+
+
+def handle_performance_query(topic: str, payload: str):
+    """Handle performance query requests"""
+    try:
+        request = json.loads(payload)
+        response_topic = request.get("response_topic")
+
+        if not response_topic:
+            logger.warning("No response_topic in performance query")
+            return
+
+        # Gather performance data
+        performance_data = {
+            "machines": {},
+            "timestamp": time.time()
+        }
+
+        with machine_performance_lock:
+            for machine_id, perf in machine_performance.items():
+                performance_data["machines"][machine_id] = {
+                    "total_operations": perf["total_ops"],
+                    "failures": perf["failures"],
+                    "failure_rate": perf["failures"] / perf["total_ops"] if perf["total_ops"] > 0 else 0,
+                    "average_time": perf["avg_time"]
+                }
+
+        # Publish response (would need mqtt_client reference - will handle in main)
+        logger.info(f"Performance query: {len(performance_data['machines'])} machines")
+
+    except json.JSONDecodeError as e:
+        logger.error(f"Invalid JSON in performance query: {e}")
+    except Exception as e:
+        logger.error(f"Error handling performance query: {e}")
+
+
 def process_production_queue(orchestrator: WorkflowOrchestrator):
     """Process production orders from the queue"""
     global running
@@ -361,6 +563,22 @@ def signal_handler(sig, frame):
     running = False
 
 
+def load_workflows_from_directory(registry: WorkflowRegistry, directory: str):
+    """Load workflow definitions from JSON files"""
+    import glob
+    workflow_files = glob.glob(os.path.join(directory, "*.json"))
+
+    loaded_count = 0
+    for file_path in workflow_files:
+        try:
+            registry.load_from_file(file_path)
+            loaded_count += 1
+        except Exception as e:
+            logger.warning(f"Failed to load workflow from {file_path}: {e}")
+
+    return loaded_count
+
+
 def main():
     """Main service loop"""
     global running, workflow_registry
@@ -373,7 +591,14 @@ def main():
 
     # Initialize workflow registry
     workflow_registry = WorkflowRegistry()
-    logger.info(f"Loaded {len(workflow_registry.list_all())} workflows:")
+
+    # Load workflows from JSON files
+    workflows_dir = os.path.join(os.path.dirname(__file__), "../../workflows")
+    if os.path.exists(workflows_dir):
+        loaded = load_workflows_from_directory(workflow_registry, workflows_dir)
+        logger.info(f"Loaded {loaded} workflow(s) from {workflows_dir}")
+
+    logger.info(f"Total workflows available: {len(workflow_registry.list_all())}")
     for workflow in workflow_registry.list_all():
         logger.info(f"  - {workflow.workflow_name} ({workflow.product_type}) - {len(workflow.steps)} steps")
 
@@ -398,13 +623,22 @@ def main():
     register_machine("sewing", "sewing-01")
     register_machine("ironing", "ironing-01")
     register_machine("printing", "printing-01")
+    register_machine("qualitycheck", "qualitycheck-01")
+    register_machine("folding", "folding-01")
+    register_machine("packaging", "packaging-01")
 
     # Subscribe to topics
     request_topic = f"factory/{FACTORY_SITE_ID}/production/request"
     registration_topic = f"factory/{FACTORY_SITE_ID}/machine/+/+/register"
+    response_topic = f"factory/{FACTORY_SITE_ID}/production/+/step/+/response"
+    workflow_adjust_topic = f"factory/{FACTORY_SITE_ID}/orchestrator/workflow/adjust"
+    performance_topic = f"factory/{FACTORY_SITE_ID}/orchestrator/performance/query"
 
     mqtt_client.subscribe(request_topic, handle_production_request)
     mqtt_client.subscribe(registration_topic, handle_machine_registration)
+    mqtt_client.subscribe(response_topic, handle_machine_response)
+    mqtt_client.subscribe(workflow_adjust_topic, handle_workflow_adjustment)
+    mqtt_client.subscribe(performance_topic, handle_performance_query)
 
     # Start MQTT loop
     mqtt_client.loop_start()

@@ -9,9 +9,9 @@ import signal
 import json
 
 # Add shared modules to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../shared'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), './shared'))
 
-from qualitycheck_machine import QualitycheckMachine
+from qualitycheck_machine import QualityCheckMachine
 from mqtt_client import MQTTClient
 from config import (
     MQTT_BROKER, MQTT_PORT, MQTT_KEEPALIVE,
@@ -114,7 +114,7 @@ def main():
     logger.info(f"Starting Qualitycheck Machine Service: {machine_id}")
 
     # Initialize machine
-    machine = QualitycheckMachine(machine_id)
+    machine = QualityCheckMachine(machine_id)
     machine.start()
 
     # Initialize MQTT client

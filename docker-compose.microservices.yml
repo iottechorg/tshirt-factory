@@ -1,5 +1,3 @@
-version: '3.8'
-
 volumes:
   mosquitto_data:
   mosquitto_log:
@@ -18,7 +16,7 @@ services:
     container_name: factory-mqtt
     ports:
       - "31883:1883"
-      - "9001:9001"
+      - "9002:9001"
     volumes:
       - ./mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf
       - mosquitto_data:/mosquitto/data
@@ -41,7 +39,7 @@ services:
       POSTGRES_PASSWORD: factory_pass
       POSTGRES_DB: factory_db
     ports:
-      - "5432:5432"
+      - "15432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./infrastructure/databases/init-postgres.sql:/docker-entrypoint-initdb.d/init.sql
@@ -81,7 +79,7 @@ services:
     image: redis:7-alpine
     container_name: factory-redis
     ports:
-      - "6379:6379"
+      - "16379:6379"
     volumes:
       - redis_data:/data
     networks:
@@ -97,8 +95,8 @@ services:
   # Cutting Machine Service
   cutting-machine-01:
     build:
-      context: ./services
-      dockerfile: machines/cutting/Dockerfile
+      context: .
+      dockerfile: services/machines/cutting/Dockerfile
     container_name: cutting-machine-01
     environment:
       MACHINE_ID: cutting-01
@@ -119,8 +117,8 @@ services:
   # Sewing Machine Service
   sewing-machine-01:
     build:
-      context: ./services
-      dockerfile: machines/sewing/Dockerfile
+      context: .
+      dockerfile: services/machines/sewing/Dockerfile
     container_name: sewing-machine-01
     environment:
       MACHINE_ID: sewing-01
@@ -141,8 +139,8 @@ services:
   # Ironing Machine Service
   ironing-machine-01:
     build:
-      context: ./services
-      dockerfile: machines/ironing/Dockerfile
+      context: .
+      dockerfile: services/machines/ironing/Dockerfile
     container_name: ironing-machine-01
     environment:
       MACHINE_ID: ironing-01
@@ -163,8 +161,8 @@ services:
   # Printing Machine Service
   printing-machine-01:
     build:
-      context: ./services
-      dockerfile: machines/printing/Dockerfile
+      context: .
+      dockerfile: services/machines/printing/Dockerfile
     container_name: printing-machine-01
     environment:
       MACHINE_ID: printing-01
@@ -185,8 +183,8 @@ services:
   # Quality Check Machine Service
   qualitycheck-machine-01:
     build:
-      context: ./services
-      dockerfile: machines/qualitycheck/Dockerfile
+      context: .
+      dockerfile: services/machines/qualitycheck/Dockerfile
     container_name: qualitycheck-machine-01
     environment:
       MACHINE_ID: qualitycheck-01
@@ -207,8 +205,8 @@ services:
   # Folding Machine Service
   folding-machine-01:
     build:
-      context: ./services
-      dockerfile: machines/folding/Dockerfile
+      context: .
+      dockerfile: services/machines/folding/Dockerfile
     container_name: folding-machine-01
     environment:
       MACHINE_ID: folding-01
@@ -229,8 +227,8 @@ services:
   # Packaging Machine Service
   packaging-machine-01:
     build:
-      context: ./services
-      dockerfile: machines/packaging/Dockerfile
+      context: .
+      dockerfile: services/machines/packaging/Dockerfile
     container_name: packaging-machine-01
     environment:
       MACHINE_ID: packaging-01
@@ -251,8 +249,8 @@ services:
   # Production Orchestrator Service
   production-orchestrator:
     build:
-      context: ./services
-      dockerfile: production-orchestrator/Dockerfile
+      context: .
+      dockerfile: services/production-orchestrator/Dockerfile
     container_name: production-orchestrator
     environment:
       MQTT_BROKER: mqttbroker

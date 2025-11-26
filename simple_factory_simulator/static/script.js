@@ -25,8 +25,8 @@ function fetchMachines() {
         machineTableBody.empty();
           data.forEach(machine => {
              let sensorKeys =  Object.keys(machine.sensor_data);
-              let sensor_info = sensorKeys.map((key) => ` ${key}: ${machine.sensor_data[key]} `)
-            machineTableBody.append(`<tr><td>${machine.name}</td><td>${machine.id}</td><td>${sensor_info.join(" , ")}</td></tr>`);
+              let sensor_info = sensorKeys.map((key) => `<div class="text-xs"><span class="font-medium text-gray-700">${key}:</span> <span class="text-gray-900">${machine.sensor_data[key].toFixed(2)}</span></div>`)
+            machineTableBody.append(`<tr><td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 w-1/4">${machine.name}</td><td class="px-6 py-4 whitespace-nowrap text-xs text-gray-500 font-mono w-1/4">${machine.id}</td><td class="px-6 py-4 text-sm text-gray-900 w-1/2">${sensor_info.join("")}</td></tr>`);
             if (JSON.stringify(Object.keys(machine.sensor_data)) !== JSON.stringify(currentSensors[machine.name] || [])) {
                 currentSensors[machine.name] = Object.keys(machine.sensor_data);
                  hasChanged = true;

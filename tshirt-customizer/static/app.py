@@ -6,9 +6,7 @@ import json
 
 app = Flask(__name__)
 #app.config['DEBUG'] = True  # Enable debug mode
-logging.basicConfig(level=logging.DEBUG)
-app.logger.setLevel(logging.DEBUG)
-CORS(app, resources={r"/*": {"origins": ["http://localhost:8080", "http://127.0.0.1:8080"]}})
+CORS(app)
 
 
 def send_production_request_to_orchestrator(product_name, product_details):
@@ -25,7 +23,7 @@ def send_production_request_to_orchestrator(product_name, product_details):
 def index():
     return render_template('index.html',
                            API_BASE_URL=API_BASE_URL,
-                           MQTT_BROKER=MQTT_RESOLVED_URL,
+                           MQTT_BROKER=MQTT_BROKER,
                            MQTT_WS_PORT=MQTT_WS_PORT,
                            MQTT_TOPIC_PRODUCTION=MQTT_TOPIC_PRODUCTION,
                            MACHINE_DATA_REST_REQUEST_INTERVAL=MACHINE_DATA_REST_REQUEST_INTERVAL)
@@ -64,18 +62,13 @@ def update_sensor_rest(machine_id, sensor_name):
 
 @app.route("/production", methods=["POST"])
 def start_production():
-    data = request.get_json(silent=True)
-    app.logger.debug("Incoming production request: %s", data)
-    if not data or "product_name" not in data:
-        app.logger.warning("Invalid production request: %s", data)
+    #logging.debug(request.get_json())
+    data = request.get_json()
+    if "product_name" not in data:
         return create_response({"message": "product_name is required"}, 400)
     product_name = data["product_name"]
     product_details = data.get("product_details", None)
-    try:
-        send_production_request_to_orchestrator(product_name, product_details)
-    except Exception as e:
-        app.logger.exception("Failed to enqueue production request")
-        return create_response({"message": "Internal server error"}, 500)
+    send_production_request_to_orchestrator(product_name, product_details)
     return create_response({"message": "Production request added to queue"}, 202)
 
 

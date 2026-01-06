@@ -12,6 +12,9 @@ MQTT_WS_PORT = int(os.getenv("MQTT_WS_PORT", 8083))
 WEBAPP_PORT = os.getenv("WEBAPP_PORT", 5001)  # If the port number is statically defined
 API_BASE_URL = "http://localhost:" + str(WEBAPP_PORT) # use host IP address such as 10.0.1.2 not localhost
 
+# Factory/site identifier
+FACTORY_SITE_ID = os.getenv("FACTORY_SITE_ID", "site-01")
+
 # Simulation app
 PRODUCTION_SUCCESS_RATE = float(os.getenv("PRODUCTION_SUCCESS_RATE", 0.99))  # Default 90% success
 MACHINE_NAMES = ["cutting", "sewing", "ironing", "printing"]

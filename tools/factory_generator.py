@@ -1007,8 +1007,8 @@ MQTT_BROKER = os.getenv("MQTT_BROKER", "mqttbroker")
 MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
 CONFIG_PATH = os.getenv("CONFIG_PATH", "/app/factory-config.json")
 
-TOPIC_CONFIG = f"factory/{{FACTORY_ID}}/config"
-TOPIC_REQUEST = f"factory/{{FACTORY_ID}}/config/request"
+TOPIC_CONFIG = f"factory/{FACTORY_ID}/config"
+TOPIC_REQUEST = f"factory/{FACTORY_ID}/config/request"
 
 def load_config(path):
     try:

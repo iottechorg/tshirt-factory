@@ -7,6 +7,41 @@ import threading
 import os
 import paho.mqtt.client as mqtt
 
+# Compatibility shim for Python 3.14+: provide pkgutil.get_loader if missing
+import pkgutil
+import importlib.util
+import ast
+# Provide missing helpers removed in Python 3.14 used by older deps (werkzeug/flask)
+if not hasattr(ast, 'Str'):
+    class _CompatStr(ast.Constant):
+        def __init__(self, s):
+            super().__init__(value=s)
+            self.s = s
+    ast.Str = _CompatStr
+if not hasattr(ast, 'Num'):
+    class _CompatNum(ast.Constant):
+        def __init__(self, n):
+            super().__init__(value=n)
+            self.n = n
+    ast.Num = _CompatNum
+if not hasattr(ast, 'NameConstant'):
+    class _CompatNameConstant(ast.Constant):
+        def __init__(self, v):
+            super().__init__(value=v)
+            self.value = v
+    ast.NameConstant = _CompatNameConstant
+
+if not hasattr(pkgutil, "get_loader"):
+    def _get_loader(name):
+        try:
+            if not name or name == "__main__":
+                return None
+            spec = importlib.util.find_spec(name)
+            return spec.loader if spec else None
+        except Exception:
+            return None
+    pkgutil.get_loader = _get_loader
+
 # runtime-loaded factory config
 factory_config = None
 

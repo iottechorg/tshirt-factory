@@ -17,6 +17,19 @@
       <p class="text-slate-400 text-lg">Choose your design, size, and let AI bring it to life</p>
     </div>
 
+    <div class="mb-6">
+      <h2 class="text-lg text-white font-semibold mb-2">Factory Machines</h2>
+      <div *ngIf="machines && machines.length; else noMachines" class="grid grid-cols-2 gap-2">
+        <div *ngFor="let m of machines" class="p-2 bg-slate-800/50 rounded">
+          <div class="text-sm font-medium text-white">{{ m.instance_name || m.machine_id }}</div>
+          <div class="text-xs text-slate-400">Type: {{ m.machine_type }}</div>
+        </div>
+      </div>
+      <ng-template #noMachines>
+        <div class="text-sm text-slate-400">No factory config loaded.</div>
+      </ng-template>
+    </div>
+
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-12">
       <div class="lg:col-span-1">
         <div class="bg-slate-800/50 backdrop-blur rounded-xl p-6 border border-slate-700/50">

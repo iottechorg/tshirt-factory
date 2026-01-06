@@ -1,6 +1,7 @@
 import { Component } from '@angular/core';
 import { TshirtOptions, OrderPayload, AiImageResponse } from '../models/tshirt-options.model';
 import { ApiService } from '../api.service';
+import { FactoryConfigService } from '../factory-config.service';
 import { FormsModule } from '@angular/forms';
 import { NgIf, NgFor, NgClass } from '@angular/common';
 import { MatSelectModule } from '@angular/material/select';
@@ -63,11 +64,29 @@ export class TshirtSelectorComponent implements OnInit {
   apiLimitMessage: string = '';
   isGenerating: boolean = false;
   apiUrl: string | undefined;
+  machines: any[] = [];
 
-  constructor(private apiService: ApiService, private router: Router) {}
+  constructor(private apiService: ApiService, private router: Router, private cfgService: FactoryConfigService) {}
 
   ngOnInit(): void {
     this.apiUrl = environment.apiUrl;
+    // Load runtime factory config if available
+    this.cfgService.getRuntimeConfig().subscribe({
+      next: (cfg: any) => {
+        console.log('Loaded runtime factory config', cfg);
+        if (cfg && cfg.machines) {
+          this.machines = cfg.machines;
+        }
+      },
+      error: (err) => {
+        // fallback: try generated config for the default factory id
+        console.warn('No runtime config available, trying generated config');
+        this.cfgService.getGeneratedConfig('tshirt-factory-001').subscribe({
+          next: (gcfg: any) => { this.machines = gcfg.machines || []; },
+          error: () => { console.warn('No generated config found') }
+        });
+      }
+    });
   }
 
   generateAiImage() {

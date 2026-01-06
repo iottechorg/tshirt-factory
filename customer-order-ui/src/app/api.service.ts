@@ -13,6 +13,10 @@ export class ApiService {
 
     constructor(private http: HttpClient) { }
 
+    getFactoryConfig() {
+        return this.http.get(this.orderUrl + '/factory-config');
+    }
+
     generateAiImage(tshirtOptions: any, extraKeywords:string): Observable<any> {
         let keywords =  `${tshirtOptions.color}_${tshirtOptions.collar}_tshirt`
         if(extraKeywords)

@@ -4,7 +4,7 @@ volumes:
 services:
   factory-simulator:
     build:
-      context: ./simple_factory_simulator/
+      context: ./factory_ui_simulator/
       dockerfile: Dockerfile
       args:
         WEBAPP_PORT: ${WEBAPP_PORT}  # Pass the desired port during build
@@ -35,7 +35,7 @@ services:
 
   frontend:
     build:
-      context: ./tshirt-customizer/
+      context: ./customer-order-ui/
       dockerfile: Dockerfile
       args:
         API_URL: ${API_URL} # Passing the env variable to the build args

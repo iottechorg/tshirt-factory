@@ -1,8 +1,14 @@
-from flask import Flask, request, render_template, send_from_directory
+from flask import Flask, request, render_template, send_from_directory, jsonify
 from flask_cors import CORS
 from managers import *
 import logging
 import json
+import threading
+import os
+import paho.mqtt.client as mqtt
+
+# runtime-loaded factory config
+factory_config = None
 
 app = Flask(__name__)
 #app.config['DEBUG'] = True  # Enable debug mode
@@ -19,6 +25,66 @@ def send_production_request_to_orchestrator(product_name, product_details):
         "product_details": product_details
     }
     production_mqtt_publisher.publish(request_topic, json.dumps(request_data))
+
+
+def apply_factory_config(cfg: dict):
+    """Apply selected parts of the factory config at runtime.
+
+    This updates the production workflow steps and some runtime intervals
+    so the simulator can adapt without a full restart.
+    """
+    global factory_config
+    factory_config = cfg
+    try:
+        workflows = cfg.get("workflows", [])
+        if workflows:
+            # prefer a workflow that matches 'tshirt' product_type, otherwise pick first
+            wf = next((w for w in workflows if w.get("product_type") == "tshirt"), workflows[0])
+            steps = [s.get("machine_type") for s in wf.get("steps", []) if s.get("machine_type")]
+            if steps:
+                production_manager.production_process.steps = steps
+                app.logger.info(f"Updated production workflow steps: {steps}")
+
+        # Optional runtime overrides
+        # Update managers' intervals if provided in config
+        import managers as managers_mod
+        if cfg.get("machine_data_publish_interval"):
+            managers_mod.MACHINE_DATA_PUBLISH_INTERVAL = int(cfg["machine_data_publish_interval"])
+            app.logger.info("Updated MACHINE_DATA_PUBLISH_INTERVAL")
+        if cfg.get("production_loop_interval"):
+            managers_mod.PRODUCTION_LOOP_INTERVAL = int(cfg["production_loop_interval"])
+            app.logger.info("Updated PRODUCTION_LOOP_INTERVAL")
+    except Exception as e:
+        app.logger.exception("Failed to apply factory config")
+
+
+@app.route("/factory-config", methods=["GET"])
+def get_factory_config():
+    if factory_config:
+        return jsonify(factory_config)
+    # try to load runtime file if exists
+    if os.path.exists("factory_config_runtime.json"):
+        try:
+            with open("factory_config_runtime.json", "r") as f:
+                cfg = json.load(f)
+                return jsonify(cfg)
+        except Exception:
+            pass
+    return jsonify({}), 404
+
+
+@app.route("/factory-config/generated/<string:factory_id>", methods=["GET"])
+def get_generated_factory_config(factory_id):
+    """Return the generated factory-config.json for a given factory id, if present."""
+    gen_path = os.path.join("..", "generated-factories", factory_id, "factory-config.json")
+    if os.path.exists(gen_path):
+        try:
+            with open(gen_path, 'r') as f:
+                cfg = json.load(f)
+                return jsonify(cfg)
+        except Exception:
+            return jsonify({"error": "Failed to read generated config"}), 500
+    return jsonify({}), 404
 
 
 @app.route("/")
@@ -146,6 +212,37 @@ def trigger_test_case(test_case):
 
 if __name__ == "__main__":
     try:
+        # Start MQTT client to listen for factory config messages
+        mqtt_client = mqtt.Client(client_id=f"factory_ui_config_{FACTORY_SITE_ID}")
+
+        def _on_connect(client, userdata, flags, rc):
+            if rc == 0:
+                app.logger.info("Connected to MQTT broker for factory config")
+                client.subscribe(f"factory/{FACTORY_SITE_ID}/config")
+                client.subscribe(f"factory/{FACTORY_SITE_ID}/config/request")
+            else:
+                app.logger.error(f"Config MQTT connection failed rc={rc}")
+
+        def _on_message(client, userdata, msg):
+            try:
+                payload = msg.payload.decode("utf-8")
+                app.logger.info(f"Factory config message received on {msg.topic}")
+                cfg = json.loads(payload)
+                # persist runtime copy
+                with open("factory_config_runtime.json", "w") as f:
+                    json.dump(cfg, f)
+                apply_factory_config(cfg)
+            except Exception:
+                app.logger.exception("Error handling factory config message")
+
+        mqtt_client.on_connect = _on_connect
+        mqtt_client.on_message = _on_message
+        try:
+            mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
+            mqtt_client.loop_start()
+        except Exception:
+            app.logger.exception("Unable to start MQTT config client")
+
         machine_thread = threading.Thread(target=machine_manager.run)
         publish_thread = threading.Thread(target=machine_manager.publish_machine_data)
         production_thread_setup = threading.Thread(target=production_manager.run)  # daemon to prevent blocking

@@ -31,11 +31,11 @@ cd generated-factories/tshirt-factory-001
 docker compose up --build
 
 # 3. Start API gateway (in another terminal)
-cd simple_factory_simulator
+cd factory_ui_simulator
 python3 app.py
 
 # 4. Open customer frontend
-open http://localhost:4200  # (after running: cd tshirt-customizer && ng serve)
+open http://localhost:4200  # (after running: cd customer-order-ui && ng serve)
 ```
 
 ### Option 2: Other Factories
@@ -95,8 +95,8 @@ mosquitto_sub -h localhost -p 31883 -t 'factory/#' -v
                  ▼ MQTT Topics
 ┌─────────────────────────────────────────────────────────┐
 │  API Gateway & Frontends                                │
-│  ├─ REST API          (simple_factory_simulator)       │
-│  ├─ T-Shirt Frontend  (tshirt-customizer, Angular)    │
+│  ├─ REST API          (factory_ui_simulator)       │
+│  ├─ Customer Frontend  (customer-order-ui, Angular)    │
 │  └─ Vehicle Frontend  (vehicle-customizer, HTML/JS)   │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -123,13 +123,13 @@ mosquitto_sub -h localhost -p 31883 -t 'factory/#' -v
 - **TimescaleDB**: Time-series database for sensor data
 - **MQTT Broker** (Mosquitto): Central message bus
 
-**4. API Gateway** (`simple_factory_simulator/`)
+**4. API Gateway** (`factory_ui_simulator/`)
 - REST API for placing orders and querying machine status
 - WebSocket bridge for real-time MQTT data to browsers
 - Flask-based, runs on `localhost:5001`
 
 **5. Customer Frontends**
-- **tshirt-customizer** (Angular): Design and order custom t-shirts
+- **customer-order-ui** (Angular): Design and order custom t-shirts
 - **vehicle-customizer** (HTML/JS): Configure vehicles
 
 ---
@@ -347,16 +347,16 @@ tshirt-factory/
 ├── mqtt/                          ← MQTT configuration
 │   └── mosquitto.conf
 │
-├── simple_factory_simulator/      ← API Gateway & Monitoring Dashboard
-│   ├── app.py                     (Flask app)
-│   ├── requirements.txt
-│   ├── static/                    (Web assets)
-│   └── templates/                 (HTML)
+├── factory_ui_simulator/      ← API Gateway & Monitoring Dashboard
+│  ├── app.py                     (Flask app)
+│  ├── requirements.txt
+│  ├── static/                    (Web assets)
+│  └── templates/                 (HTML)
 │
-├── tshirt-customizer/             ← T-Shirt Frontend (Angular)
-│   ├── src/
-│   ├── package.json
-│   └── ... (Angular project)
+├── customer-order-ui/             ← Customer Frontend (Angular)
+│  ├── src/
+│  ├── package.json
+│  └── ... (Angular project)
 │
 ├── vehicle-customizer/            ← Vehicle Frontend (HTML/JS)
 │   └── src/

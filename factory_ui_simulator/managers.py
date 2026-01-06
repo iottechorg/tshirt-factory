@@ -81,3 +81,93 @@ class ProductionManager(threading.Thread):
 
 machine_manager = MachineManager(machines, machine_mqtt_publisher)
 production_manager = ProductionManager(production_mqtt_publisher)
+
+
+def reload_machines_from_config(cfg: dict):
+    """Adjust the in-memory machine instances to match the factory config.
+
+    - Adds machines if the config contains more instances of a type
+    - Stops and removes machines if the config has fewer
+    """
+    try:
+        desired = {}
+        for m in cfg.get('machines', []):
+            t = m.get('machine_type')
+            if not t:
+                continue
+            desired[t] = desired.get(t, 0) + 1
+
+        # current counts by machine.name
+        current = {}
+        for m in machines:
+            current[m.name] = current.get(m.name, 0) + 1
+
+        # Add missing machines
+        for mtype, count in desired.items():
+            have = current.get(mtype, 0)
+            if count > have:
+                for _ in range(count - have):
+                    newm = Machine(mtype)
+                    machines.append(newm)
+                    # If manager already running, schedule its loop task
+                    try:
+                        if machine_manager and machine_manager.loop and not machine_manager.loop.is_closed():
+                            machine_manager.loop.call_soon_threadsafe(lambda nm=newm: machine_manager.loop.create_task(nm.run()))
+                    except Exception:
+                        pass
+
+        # Remove extra machines
+        for mtype, have in list(current.items()):
+            want = desired.get(mtype, 0)
+            if have > want:
+                # remove (have - want) machines of this type
+                to_remove = have - want
+                removed = 0
+                # iterate in reverse to remove newest first
+                for i in range(len(machines) - 1, -1, -1):
+                    if removed >= to_remove:
+                        break
+                    if machines[i].name == mtype:
+                        try:
+                            machines[i].stop()
+                        except Exception:
+                            pass
+                        del machines[i]
+                        removed += 1
+
+        # update production manager's machines reference
+        try:
+            production_manager.production_process.machines = machines
+        except Exception:
+            pass
+
+    except Exception as e:
+        import logging
+        logging.exception(f"Error reloading machines from config: {e}")
+
+
+def config_watcher_thread(path: str = "factory_config_runtime.json", interval: int = 5):
+    """Thread that polls a runtime config file and reloads machines when changed."""
+    import time, json
+    last_mtime = None
+    while True:
+        try:
+            if os.path.exists(path):
+                mtime = os.path.getmtime(path)
+                if last_mtime is None or mtime > last_mtime:
+                    with open(path, 'r') as f:
+                        cfg = json.load(f)
+                        reload_machines_from_config(cfg)
+                    last_mtime = mtime
+        except Exception:
+            logging.exception("Error in config watcher")
+        time.sleep(interval)
+
+
+# Start config watcher in background so changes applied at runtime
+try:
+    import threading
+    watcher = threading.Thread(target=config_watcher_thread, daemon=True)
+    watcher.start()
+except Exception:
+    pass

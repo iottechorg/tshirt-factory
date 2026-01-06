@@ -18,7 +18,24 @@ import shutil
 from pathlib import Path
 from typing import Dict, List, Any
 import argparse
-import yaml
+try:
+    import yaml
+except Exception:
+    yaml = None
+    # fallback shim using json for environments without PyYAML
+    import types
+    def _yaml_dump(obj, stream=None, **kwargs):
+        text = json.dumps(obj, indent=2)
+        if stream:
+            try:
+                stream.write(text)
+                return None
+            except Exception:
+                pass
+        return text
+    def _yaml_safe_load(s):
+        return json.loads(s)
+    yaml = types.SimpleNamespace(dump=_yaml_dump, safe_load=_yaml_safe_load)
 
 
 
@@ -865,6 +882,24 @@ log_type all
             'restart': 'unless-stopped'
         }
 
+        # Add config publisher service so the generated factory publishes its config at startup
+        compose['services']['config-publisher'] = {
+            'build': {
+                'context': '.',
+                'dockerfile': 'services/config_publisher/Dockerfile'
+            },
+            'container_name': f"{factory_id}-config-publisher",
+            'environment': {
+                'FACTORY_ID': factory_id,
+                'MQTT_BROKER': 'mqttbroker',
+                'MQTT_PORT': 1883
+            },
+            'depends_on': ['mqttbroker'],
+            'networks': [network],
+            'restart': 'unless-stopped',
+            'volumes': [f"./factory-config.json:/app/factory-config.json:ro"]
+        }
+
         return compose
 
     def generate_machine_dockerfile(self, machine_type: str, factory_dir: Path):
@@ -950,6 +985,102 @@ CMD ["python3", "monitoring_service.py"]
 
         with open(dockerfile, 'w') as f:
             f.write(dockerfile_content)
+
+    def generate_config_publisher_files(self, factory_dir: Path):
+        """Generate a small service that publishes factory-config.json to MQTT at startup."""
+        svc_dir = factory_dir / "services" / "config_publisher"
+        svc_dir.mkdir(parents=True, exist_ok=True)
+
+        publish_py = '''#!/usr/bin/env python3
+import os
+import json
+import time
+import logging
+import sys
+import paho.mqtt.client as mqtt
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+FACTORY_ID = os.getenv("FACTORY_ID", "{factory_id}")
+MQTT_BROKER = os.getenv("MQTT_BROKER", "mqttbroker")
+MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
+CONFIG_PATH = os.getenv("CONFIG_PATH", "/app/factory-config.json")
+
+TOPIC_CONFIG = f"factory/{{FACTORY_ID}}/config"
+TOPIC_REQUEST = f"factory/{{FACTORY_ID}}/config/request"
+
+def load_config(path):
+    try:
+        with open(path, "r") as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Failed to load config from {path}: {e}")
+        return None
+
+def publish_config(client, config):
+    payload = json.dumps(config)
+    client.publish(TOPIC_CONFIG, payload, qos=1, retain=True)
+    logger.info(f"Published factory config to topic {TOPIC_CONFIG}")
+
+def on_connect(client, userdata, flags, rc):
+    if rc == 0:
+        logger.info("Connected to MQTT broker")
+        client.subscribe(TOPIC_REQUEST)
+        cfg = load_config(CONFIG_PATH)
+        if cfg:
+            publish_config(client, cfg)
+    else:
+        logger.error(f"MQTT connection failed with rc={rc}")
+
+def on_message(client, userdata, msg):
+    logger.info(f"Received config request on {msg.topic}")
+    cfg = load_config(CONFIG_PATH)
+    if cfg:
+        publish_config(client, cfg)
+
+def main():
+    client = mqtt.Client(client_id=f"config-publisher-{FACTORY_ID}")
+    client.on_connect = on_connect
+    client.on_message = on_message
+    try:
+        client.connect(MQTT_BROKER, MQTT_PORT, keepalive=60)
+    except Exception as e:
+        logger.error(f"Unable to connect to MQTT broker {MQTT_BROKER}:{MQTT_PORT} - {e}")
+        sys.exit(1)
+    client.loop_start()
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        logger.info("Shutting down config publisher")
+    finally:
+        client.loop_stop()
+        client.disconnect()
+
+if __name__ == "__main__":
+    main()
+'''.replace('{factory_id}', self.config.get('factory_id', 'factory-001'))
+
+        with open(svc_dir / 'publish_config.py', 'w') as f:
+            f.write(publish_py)
+        os.chmod(svc_dir / 'publish_config.py', 0o755)
+
+        with open(svc_dir / 'requirements.txt', 'w') as f:
+            f.write('paho-mqtt>=1.6\n')
+
+        dockerfile = svc_dir / 'Dockerfile'
+        dockerfile_content = f'''FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
+COPY publish_config.py /app/publish_config.py
+COPY ../../../factory-config.json /app/factory-config.json
+CMD ["python", "/app/publish_config.py"]
+'''
+        with open(dockerfile, 'w') as f:
+            f.write(dockerfile_content)
+
 
     def generate_factory(self):
         """Generate complete factory from configuration"""
@@ -1069,6 +1200,10 @@ CMD ["python3", "monitoring_service.py"]
         config_copy_file = factory_dir / "factory-config.json"
         with open(config_copy_file, 'w') as f:
             json.dump(self.config, f, indent=2)
+
+        # Generate config-publisher service files so factories auto-publish their config
+        print("\nGenerating config-publisher service files...")
+        self.generate_config_publisher_files(factory_dir)
 
         # Generate requirements.txt for shared modules
         print("\nGenerating requirements file...")

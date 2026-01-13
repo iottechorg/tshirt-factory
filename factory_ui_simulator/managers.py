@@ -1,173 +1,277 @@
-import asyncio
-from machine import Machine
-from production import ProductionProcess
-from mqtt_publisher import MQTTPublisher
-import threading
-import time
+"""
+Simplified Factory Manager
+
+No longer manages local machine/production simulation.
+Now acts as a MQTT-based state manager that:
+1. Listens for factory status updates via MQTT
+2. Publishes commands (sensor updates, production requests, tests) to the factory
+3. Provides state query methods for REST endpoints
+"""
+
 import logging
+import threading
+from factory_state_manager import FactoryStateManager
+from mqtt_publisher import MQTTPublisher
+from config import (
+    MQTT_BROKER, MQTT_PORT, FACTORY_SITE_ID,
+    MQTT_TOPIC_PRODUCTION_REQUEST, MQTT_TOPIC_SENSOR_UPDATE, MQTT_TOPIC_TEST_REQUEST,
+    MQTT_TOPIC_CONFIG
+)
+import json
 
-from util import *
-from config import *
+logger = logging.getLogger(__name__)
 
-machines = [Machine(name) for name in MACHINE_NAMES]
-machine_mqtt_publisher = MQTTPublisher(client_id="machine_simulator_machine")
-production_mqtt_publisher = MQTTPublisher(client_id="machine_simulator_production")
+# Global state manager and publishers
+factory_state_manager = FactoryStateManager(
+    mqtt_broker=MQTT_BROKER,
+    mqtt_port=MQTT_PORT,
+    factory_site_id=FACTORY_SITE_ID
+)
 
-# Move the production process creation inside the production manager
-production_process = None
+# MQTT publisher for sending commands to factory
+command_publisher = MQTTPublisher(
+    client_id=f"factory_ui_commands_{FACTORY_SITE_ID}",
+    enable_logs=True
+)
 
 
-class MachineManager(threading.Thread):
-    def __init__(self, all_machines, publisher):
-        super().__init__(daemon=True)
-        self.machines = all_machines
+class CommandManager:
+    """Manages sending commands to the factory via MQTT."""
+    
+    def __init__(self, publisher: MQTTPublisher):
         self.publisher = publisher
-        self.loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self.loop)
+        self.is_connected = False
+    
+    def connect(self):
+        """Connect publisher."""
+        try:
+            self.publisher.connect()
+            self.publisher.loop_start()
+            self.is_connected = True
+            logger.info("CommandManager connected")
+        except Exception as e:
+            logger.error(f"Failed to connect CommandManager: {e}")
+    
+    def stop(self):
+        """Stop publisher."""
+        if self.is_connected:
+            self.publisher.loop_stop()
+            logger.info("CommandManager stopped")
+    
+    def request_production(self, product_name: str, product_details: dict = None):
+        """Send production request to factory."""
+        try:
+            payload = {
+                "product_name": product_name,
+                "product_details": product_details or {}
+            }
+            self.publisher.publish(MQTT_TOPIC_PRODUCTION_REQUEST, json.dumps(payload))
+            logger.info(f"Published production request: {product_name}")
+        except Exception as e:
+            logger.error(f"Error publishing production request: {e}")
+    
+    def update_sensor(self, machine_id: str, sensor_name: str, value: float):
+        """Send sensor update to factory."""
+        try:
+            # Prefer per-machine command topic for machine-level updates
+            topic = f"factory/{FACTORY_SITE_ID}/machines/{machine_id}/command"
+            cmd = {"command": "update_sensor", "sensor_name": sensor_name, "value": float(value)}
+            self.publisher.publish(topic, json.dumps(cmd))
+            logger.info(f"Published sensor update: {machine_id}/{sensor_name}={value} to {topic}")
+        except Exception as e:
+            logger.error(f"Error publishing sensor update: {e}")
 
-    def run(self):
-        self.publisher.connect()
-        self.publisher.loop_start()
-        machine_tasks = [self.loop.create_task(machine.run()) for machine in self.machines]
-        self.loop.run_until_complete(asyncio.gather(*machine_tasks))
-        self.loop.close()
-        self.publisher.loop_stop()
+    def send_machine_command(self, machine_id: str, command: str, params: dict = None):
+        """Publish an arbitrary command to a specific machine's command topic."""
+        try:
+            topic = f"factory/{FACTORY_SITE_ID}/machines/{machine_id}/command"
+            payload = {"command": command}
+            if params:
+                payload.update(params)
+            self.publisher.publish(topic, json.dumps(payload))
+            logger.info(f"Published command '{command}' to {machine_id} on {topic}")
+        except Exception as e:
+            logger.error(f"Error publishing machine command: {e}")
+    
+    def run_test_case(self, test_case: dict):
+        """Send test case to factory for execution."""
+        try:
+            self.publisher.publish(MQTT_TOPIC_TEST_REQUEST, json.dumps(test_case))
+            logger.info(f"Published test case: {test_case.get('name', 'unknown')}")
+        except Exception as e:
+            logger.error(f"Error publishing test case: {e}")
 
-    def publish_machine_data(self):
-        while True:
-            try:
-                data = [json.loads(machine.to_json()) for machine in self.machines]
-                self.publisher.publish(MQTT_TOPIC_MACHINE, json.dumps(data))
-            except Exception as e:
-                logging.error(f"Error generating or publishing message: {e}")
-            time.sleep(MACHINE_DATA_PUBLISH_INTERVAL)
 
-    def update_machine(self, machine_id, data):
-        machine = get_machine_by_id(self.machines, machine_id)
+class MachineManager:
+    """Query machines from factory state and send updates."""
+    
+    def __init__(self, state_manager: FactoryStateManager, command_mgr: CommandManager):
+        self.state_manager = state_manager
+        self.command_mgr = command_mgr
+    
+    def get_machines(self):
+        """Get current machines from factory state."""
+        return self.state_manager.get_machines()
+    
+    def update_machine(self, machine_id: str, data: dict):
+        """
+        Update machine settings (e.g., failure_rate).
+        Currently supports: failure_rate
+        """
+        machine = self.state_manager.get_machine(machine_id)
         if not machine:
-            logging.warning("Machine not found")
+            logger.warning(f"Machine {machine_id} not found")
             return None
-        if "failure_rate" in data:
-            machine.failure_rate = float(data["failure_rate"])
+        
+        # For now, just update local cache. In the future, publish to factory.
+        # failure_rate would be handled by factory's production config update
+        logger.info(f"Machine update requested for {machine_id}: {data}")
+        return machine
+    
+    def update_machine_sensor(self, machine_id: str, sensor_name: str, value: float):
+        """Update sensor value and send command to factory."""
+        # Update local cache for immediate feedback
+        machine = self.state_manager.update_sensor_cache(machine_id, sensor_name, value)
+        if not machine:
+            return None
+        
+        # Send command to factory
+        self.command_mgr.update_sensor(machine_id, sensor_name, value)
         return machine
 
-    def update_machine_sensor(self, machine_id, sensor_name, value):
-        machine = get_machine_by_id(self.machines, machine_id)
-        if not machine:
-            logging.warning(f"Machine not found {machine_id}")
-            return None
-        if not machine.update_sensor_config(sensor_name, value):
-            logging.warning(f"Sensor not found {sensor_name} for {machine_id}")
-            return None
-        return machine
+
+class ProductionManager:
+    """Handle production requests via MQTT."""
+    
+    def __init__(self, command_mgr: CommandManager, state_mgr: FactoryStateManager):
+        self.command_mgr = command_mgr
+        self.state_mgr = state_mgr
+    
+    def request_production(self, product_name: str, product_details: dict = None):
+        """Send production request to factory."""
+        self.command_mgr.request_production(product_name, product_details)
+    
+    def get_production_status(self):
+        """Get current production status from factory state."""
+        return self.state_mgr.get_production_status()
 
 
-class ProductionManager(threading.Thread):
-    def __init__(self, publisher):
-        super().__init__(daemon=True)
-        self.publisher = publisher
-        self.production_process = ProductionProcess(machines, publisher)
+class TestManager:
+    """Handle test case execution."""
+    
+    def __init__(self, command_mgr: CommandManager):
+        self.command_mgr = command_mgr
+        self._running_threads = []
 
-    def run(self):
-        self.publisher.connect()
-        self.publisher.loop_start()
-        while True:
-            self.production_process.process_production_request()
-            time.sleep(PRODUCTION_LOOP_INTERVAL)
+    def run_test_case(self, test_case: dict):
+        """Execute the provided test case asynchronously."""
+        try:
+            t = threading.Thread(target=self._execute_test_case, args=(test_case,), daemon=True)
+            t.start()
+            self._running_threads.append(t)
+            logger.info(f"Started test case execution: {test_case.get('name', 'unknown')}")
+        except Exception as e:
+            logger.error(f"Failed to start test case thread: {e}")
 
-    def add_production_request(self, product_name, product_details=None):
-        self.production_process.add_production_request(product_name, product_details)
+    def _execute_test_case(self, test_case: dict):
+        """Sequentially execute steps in a test case.
 
+        Supported actions:
+        - update_sensor: {machine_id, sensor_name, value}
+        - production_request: {product_name, product_details}
+        - update_failure_rate / update_production_success_rate: publish to config
+        - run_custom_command: {machine_id, command, params}
+        - wait/delay: {seconds}
+        """
+        try:
+            name = test_case.get('name', '<unnamed>')
+            logger.info(f"Executing test case: {name}")
+            steps = test_case.get('steps', [])
+            for step in steps:
+                action = (step.get('action') or '').lower()
+                if not action:
+                    continue
 
-machine_manager = MachineManager(machines, machine_mqtt_publisher)
-production_manager = ProductionManager(production_mqtt_publisher)
+                if action in ('update_sensor', 'update_sensor_value'):
+                    machine_id = step.get('machine_id') or step.get('machine') or step.get('machine_name')
+                    sensor = step.get('sensor_name') or step.get('sensor')
+                    value = step.get('value')
+                    if machine_id and sensor and value is not None:
+                        self.command_mgr.send_machine_command(machine_id, 'update_sensor', {'sensor_name': sensor, 'value': value})
 
+                elif action in ('production_request', 'production'):
+                    product_name = step.get('product_name') or step.get('product_type') or step.get('product')
+                    product_details = step.get('product_details') or step.get('details') or {}
+                    if product_name:
+                        self.command_mgr.request_production(product_name, product_details)
 
-def reload_machines_from_config(cfg: dict):
-    """Adjust the in-memory machine instances to match the factory config.
-
-    - Adds machines if the config contains more instances of a type
-    - Stops and removes machines if the config has fewer
-    """
-    try:
-        desired = {}
-        for m in cfg.get('machines', []):
-            t = m.get('machine_type')
-            if not t:
-                continue
-            desired[t] = desired.get(t, 0) + 1
-
-        # current counts by machine.name
-        current = {}
-        for m in machines:
-            current[m.name] = current.get(m.name, 0) + 1
-
-        # Add missing machines
-        for mtype, count in desired.items():
-            have = current.get(mtype, 0)
-            if count > have:
-                for _ in range(count - have):
-                    newm = Machine(mtype)
-                    machines.append(newm)
-                    # If manager already running, schedule its loop task
-                    try:
-                        if machine_manager and machine_manager.loop and not machine_manager.loop.is_closed():
-                            machine_manager.loop.call_soon_threadsafe(lambda nm=newm: machine_manager.loop.create_task(nm.run()))
-                    except Exception:
-                        pass
-
-        # Remove extra machines
-        for mtype, have in list(current.items()):
-            want = desired.get(mtype, 0)
-            if have > want:
-                # remove (have - want) machines of this type
-                to_remove = have - want
-                removed = 0
-                # iterate in reverse to remove newest first
-                for i in range(len(machines) - 1, -1, -1):
-                    if removed >= to_remove:
-                        break
-                    if machines[i].name == mtype:
+                elif action in ('update_failure_rate', 'set_failure_rate'):
+                    rate = step.get('rate') or step.get('failure_rate')
+                    if rate is not None:
                         try:
-                            machines[i].stop()
-                        except Exception:
-                            pass
-                        del machines[i]
-                        removed += 1
+                            payload = json.dumps({"production": {"failure_rate": float(rate)}})
+                            self.command_mgr.publisher.publish(MQTT_TOPIC_CONFIG, payload)
+                            logger.info(f"Published failure_rate config: {rate}")
+                        except Exception as e:
+                            logger.error(f"Failed to publish failure_rate config: {e}")
 
-        # update production manager's machines reference
-        try:
-            production_manager.production_process.machines = machines
-        except Exception:
-            pass
+                elif action == 'update_production_success_rate':
+                    success_rate = step.get('success_rate')
+                    if success_rate is not None:
+                        try:
+                            payload = json.dumps({"production": {"success_rate": float(success_rate)}})
+                            self.command_mgr.publisher.publish(MQTT_TOPIC_CONFIG, payload)
+                            logger.info(f"Published success_rate config: {success_rate}")
+                        except Exception as e:
+                            logger.error(f"Failed to publish success_rate config: {e}")
 
+                elif action in ('run_custom_command', 'custom_command'):
+                    machine_id = step.get('machine_id')
+                    cmd = step.get('command')
+                    params = step.get('params') or step.get('payload')
+                    if machine_id and cmd:
+                        self.command_mgr.send_machine_command(machine_id, cmd, params)
+
+                elif action in ('wait', 'delay', 'sleep'):
+                    seconds = float(step.get('seconds', 0) or step.get('delay', 0))
+                    if seconds > 0:
+                        import time
+                        logger.debug(f"Test '{name}' waiting for {seconds} seconds")
+                        time.sleep(seconds)
+
+                else:
+                    logger.warning(f"Unknown test action: {action}")
+
+            logger.info(f"Finished test case: {name}")
+        except Exception as e:
+            logger.exception(f"Error executing test case '{test_case.get('name', '<unnamed>')}': {e}")
+
+
+# Global manager instances
+command_manager = CommandManager(command_publisher)
+machine_manager = MachineManager(factory_state_manager, command_manager)
+production_manager = ProductionManager(command_manager, factory_state_manager)
+test_manager = TestManager(command_manager)
+
+
+def initialize_managers():
+    """Initialize all managers and connect to MQTT."""
+    try:
+        logger.info("Initializing factory managers...")
+        factory_state_manager.connect()
+        command_manager.connect()
+        logger.info("Factory managers initialized successfully")
     except Exception as e:
-        import logging
-        logging.exception(f"Error reloading machines from config: {e}")
+        logger.error(f"Failed to initialize managers: {e}")
+        raise
 
 
-def config_watcher_thread(path: str = "factory_config_runtime.json", interval: int = 5):
-    """Thread that polls a runtime config file and reloads machines when changed."""
-    import time, json
-    last_mtime = None
-    while True:
-        try:
-            if os.path.exists(path):
-                mtime = os.path.getmtime(path)
-                if last_mtime is None or mtime > last_mtime:
-                    with open(path, 'r') as f:
-                        cfg = json.load(f)
-                        reload_machines_from_config(cfg)
-                    last_mtime = mtime
-        except Exception:
-            logging.exception("Error in config watcher")
-        time.sleep(interval)
+def stop_managers():
+    """Stop all managers."""
+    try:
+        command_manager.stop()
+        factory_state_manager.stop()
+        logger.info("Factory managers stopped")
+    except Exception as e:
+        logger.error(f"Error stopping managers: {e}")
 
-
-# Start config watcher in background so changes applied at runtime
-try:
-    import threading
-    watcher = threading.Thread(target=config_watcher_thread, daemon=True)
-    watcher.start()
-except Exception:
-    pass

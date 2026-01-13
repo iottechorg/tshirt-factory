@@ -10,12 +10,12 @@ services:
       args:
         WEBAPP_PORT: ${WEBAPP_PORT}  # Pass the desired port during build
     ports:
-      - 5002:5002
+      - 5001:5001
     environment:
         MQTT_BROKER: 192.168.188.117 # it seems jquery cannot resolve mqtt address
         MQTT_PORT: 1883
         MQTT_WS_PORT: 9001
-        WEBAPP_PORT: 5002 # The flask app port number, if this changes, change also the port tuple above
+        WEBAPP_PORT: 5001 # The flask app port number, if this changes, change also the port tuple above
         MACHINE_DATA_PUBLISH_INTERVAL: 10 # in seconds
         PRODUCTION_LOOP_INTERVAL: 5 # in seconds
         MACHINE_DATA_REST_REQUEST_INTERVAL: 10 # in seconds

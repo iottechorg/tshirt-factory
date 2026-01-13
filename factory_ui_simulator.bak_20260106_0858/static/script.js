@@ -192,56 +192,6 @@ function triggerRandomTestCase() {
         }
     });
 }
-/**
- * Open the external customizer/customer UI with a generated prompt containing
- * current factory context (machines, key sensors, production status).
- */
-function openCustomizer() {
-    // Fetch factory config, machines and production status in parallel
-    Promise.all([
-        $.get(`${API_BASE_URL}/factory-config`),
-        $.get(`${API_BASE_URL}/machines`),
-        $.get(`${API_BASE_URL}/production/status`)
-    ]).then(function(results) {
-        const factoryCfg = results[0] && results[0].factory_id ? results[0] : null;
-        const machines = Array.isArray(results[1]) ? results[1] : (results[1].machines || []);
-        const production = results[2] && results[2].status ? results[2] : null;
-
-        // Build a short human-friendly prompt
-        let promptParts = [];
-        if (factoryCfg && factoryCfg.factory_id) {
-            promptParts.push(`Factory: ${factoryCfg.factory_id}`);
-        } else if (factoryCfg && factoryCfg.name) {
-            promptParts.push(`Factory: ${factoryCfg.name}`);
-        } else {
-            promptParts.push(`Factory: ${"{{FACTORY_SITE_ID}}"}`);
-        }
-
-        if (machines && machines.length) {
-            const machineSummaries = machines.map(m => {
-                const sensors = Object.keys(m.sensor_data || {}).slice(0,3).map(k => `${k}=${m.sensor_data[k]}`).join(', ');
-                return `${m.name || m.id}(${m.id})${sensors ? ' — ' + sensors : ''}`;
-            });
-            promptParts.push(`Machines: ${machineSummaries.join('; ')}`);
-        }
-
-        if (production && production.status) {
-            promptParts.push(`Production status: ${production.status}`);
-        }
-
-        const prompt = `Context for product customization — ${promptParts.join(' | ')}`;
-        const encoded = encodeURIComponent(prompt);
-
-        // Open in new tab with prompt as query param
-        const url = CUSTOMER_UI_URL + (CUSTOMER_UI_URL.indexOf('?') === -1 ? `?prompt=${encoded}` : `&prompt=${encoded}`);
-        window.open(url, '_blank');
-
-    }).catch(function(err){
-        console.error('Failed to collect context for customizer:', err);
-        // Fallback: just open the customizer root
-        window.open(CUSTOMER_UI_URL, '_blank');
-    });
-}
 function generateRandomProductName() {
     let names = ['Awesome', 'Cool', 'Stylish', 'Great', 'Modern', 'Classic'];
     let types = ['Cotton', 'Linen', 'Silk', 'Denim', 'Wool'];

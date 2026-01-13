@@ -7,5 +7,5 @@ import { TshirtSelectorComponent } from './tshirt-selector/tshirt-selector.compo
   styleUrl: './app.component.css'
 })
 export class AppComponent {
-  title = 'customer-order-ui';
+  title = 'Custom Product Designer';
 }

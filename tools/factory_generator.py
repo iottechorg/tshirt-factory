@@ -357,7 +357,9 @@ class {class_name}Machine(BaseMachine):
             'services': {}
         }
 
-        # Add MQTT broker
+
+
+        # Add MQTT broker provided by the factory
         compose['services']['mqttbroker'] = {
             'image': 'eclipse-mosquitto:latest',
             'container_name': f"{self.config['factory_id']}-mqtt",
@@ -848,7 +850,7 @@ log_type all
                 'POSTGRES_USER': 'factory_user',
                 'POSTGRES_PASSWORD': 'factory_pass'
             },
-            'depends_on': ['mqttbroker', 'postgres'],
+            'depends_on': ['postgres'],
             'networks': [network],
             'restart': 'unless-stopped',
             'volumes': ['./workflows:/app/workflows:ro']
@@ -865,7 +867,7 @@ log_type all
                 'FACTORY_ID': factory_id,
                 'MQTT_BROKER': 'mqttbroker',
                 'MQTT_PORT': 1883,
-                'FACTORY_SITE_ID': 'site-01',
+                'FACTORY_SITE_ID': factory_id,
                 'DB_HOST': 'postgres',
                 'DB_PORT': 5432,
                 'DB_NAME': self.config['database_config']['connection']['database'],
@@ -877,7 +879,7 @@ log_type all
                 'TIMESCALE_USER': 'factory_user',
                 'TIMESCALE_PASSWORD': 'factory_pass'
             },
-            'depends_on': ['mqttbroker', 'postgres', 'timescaledb'],
+            'depends_on': ['postgres', 'timescaledb'],
             'networks': [network],
             'restart': 'unless-stopped'
         }
@@ -1201,6 +1203,15 @@ CMD ["python", "/app/publish_config.py"]
         with open(config_copy_file, 'w') as f:
             json.dump(self.config, f, indent=2)
 
+        # Generate factory-specific test cases and test runner
+        print("\nGenerating factory test cases and runner...")
+        try:
+            self._generate_test_cases(factory_dir)
+            self._generate_test_runner(factory_dir)
+            print("  ✓ Generated test_cases.json and test_runner.py")
+        except Exception as e:
+            print(f"  ! Failed to generate test artifacts: {e}")
+
         # Generate config-publisher service files so factories auto-publish their config
         print("\nGenerating config-publisher service files...")
         self.generate_config_publisher_files(factory_dir)
@@ -1395,6 +1406,233 @@ Version: {self.config.get('metadata', {}).get('version', '1.0.0')}
 
         return readme
 
+    def _generate_test_cases(self, factory_dir: Path):
+        """Generate a factory-specific `test_cases.json` using machine_ids from the config."""
+        factory_id = self.config.get('factory_id')
+        machines = self.config.get('machines', [])
+        workflows = self.config.get('workflows', [])
+
+        # Helper: find first machine_id by type
+        by_type = {}
+        for m in machines:
+            t = m.get('machine_type')
+            if t and t not in by_type:
+                by_type[t] = m.get('machine_id')
+
+        # Determine default product_type from first workflow
+        default_product = None
+        if workflows:
+            default_product = workflows[0].get('product_type') or workflows[0].get('workflow_name')
+
+        # Build a set of test cases similar to simulator defaults but with machine_ids
+        test_cases = []
+
+        # Helper: build product_details from a workflow generically
+        def _build_product_details_from_workflow(workflow: Dict) -> Dict:
+            details = {}
+            for step in workflow.get('steps', []):
+                params = step.get('parameters') or {}
+                for k, v in params.items():
+                    # If parameter is a range, pick the midpoint deterministically
+                    if isinstance(v, dict) and 'min' in v and 'max' in v:
+                        try:
+                            mn = float(v['min']); mx = float(v['max'])
+                            details[k] = (mn + mx) / 2
+                        except Exception:
+                            details[k] = v
+                    # If parameter lists explicit values, pick the first value deterministically
+                    elif isinstance(v, dict) and 'values' in v and isinstance(v['values'], (list, tuple)):
+                        details[k] = v['values'][0] if v['values'] else None
+                    else:
+                        details[k] = v
+
+            # Quantity: prefer workflow.metadata.default_quantity -> config.production_config.default_batch_size -> 1
+            qty = None
+            meta = workflow.get('metadata', {})
+            if isinstance(meta, dict):
+                qty = meta.get('default_quantity')
+            if qty is None:
+                qty = self.config.get('production_config', {}).get('default_batch_size')
+            try:
+                details.setdefault('quantity', int(qty) if qty is not None else 1)
+            except Exception:
+                details.setdefault('quantity', 1)
+
+            # Pull quality_tier or other top-level hints
+            if meta.get('quality_tier'):
+                details.setdefault('quality_tier', meta.get('quality_tier'))
+
+            return details
+
+        # Choose a representative workflow if available
+        representative_wf = workflows[0] if workflows else {}
+        rep_product_type = representative_wf.get('product_type') or representative_wf.get('workflow_name') or default_product or 'product'
+        rep_product_details = _build_product_details_from_workflow(representative_wf) if representative_wf else {"quantity": 1}
+
+        # normal_production
+        test_cases.append({
+            "name": "normal_production",
+            "description": "Runs a normal production scenario.",
+            "steps": [
+                {
+                    "action": "production_request",
+                    "product_name": rep_product_type,
+                    "product_details": rep_product_details
+                }
+            ]
+        })
+
+        # high_temp_cutting - if a cutting machine exists
+        cutting_id = by_type.get('cutting') or by_type.get('cut')
+        if cutting_id:
+            test_cases.append({
+                "name": "high_temp_cutting",
+                "description": "Simulates high temperature during cutting.",
+                "steps": [
+                    {"action": "update_sensor", "machine_id": cutting_id, "sensor_name": "blade_temperature", "value": 40},
+                    {"action": "production_request", "product_name": rep_product_type, "product_details": rep_product_details}
+                ]
+            })
+
+        # low_thread_tension_sewing - if a sewing machine exists
+        sewing_id = by_type.get('sewing')
+        if sewing_id:
+            test_cases.append({
+                "name": "low_thread_tension_sewing",
+                "description": "Simulates low thread tension during sewing.",
+                "steps": [
+                    {"action": "update_sensor", "machine_id": sewing_id, "sensor_name": "thread_tension", "value": 0.1},
+                    {"action": "production_request", "product_name": rep_product_type, "product_details": rep_product_details}
+                ]
+            })
+
+        # high_failure_rate - toggle production success/failure via config
+        test_cases.append({
+            "name": "high_failure_rate",
+            "description": "Simulates a high failure rate during production.",
+            "steps": [
+                {"action": "update_production_success_rate", "success_rate": 0.5},
+                {"action": "production_request", "product_name": rep_product_type, "product_details": rep_product_details}
+            ]
+        })
+
+        # sensor_check - set a few sensors across existing machines
+        sensor_steps = []
+        for m in machines:
+            mid = m.get('machine_id')
+            mtype = m.get('machine_type', '')
+            if not mid:
+                continue
+            if 'cut' in mtype:
+                sensor_steps.append({"action": "update_sensor", "machine_id": mid, "sensor_name": "blade_temperature", "value": 32})
+                sensor_steps.append({"action": "update_sensor", "machine_id": mid, "sensor_name": "blade_pressure", "value": 1.3})
+            elif 'sew' in mtype:
+                sensor_steps.append({"action": "update_sensor", "machine_id": mid, "sensor_name": "needle_temperature", "value": 34})
+                sensor_steps.append({"action": "update_sensor", "machine_id": mid, "sensor_name": "thread_tension", "value": 0.8})
+            elif 'iron' in mtype or 'ironing' in mtype:
+                sensor_steps.append({"action": "update_sensor", "machine_id": mid, "sensor_name": "plate_temperature", "value": 130})
+                sensor_steps.append({"action": "update_sensor", "machine_id": mid, "sensor_name": "steam_pressure", "value": 0.7})
+            elif 'print' in mtype:
+                sensor_steps.append({"action": "update_sensor", "machine_id": mid, "sensor_name": "ink_temperature", "value": 25})
+                sensor_steps.append({"action": "update_sensor", "machine_id": mid, "sensor_name": "nozzle_pressure", "value": 1.0})
+
+        if sensor_steps:
+            sensor_steps.append({"action": "production_request", "product_name": rep_product_type, "product_details": rep_product_details})
+            test_cases.append({
+                "name": "sensor_check",
+                "description": "Checks sensor values and production after changes.",
+                "steps": sensor_steps
+            })
+
+        # Write file
+        out = {"test_cases": test_cases}
+        file_path = factory_dir / 'test_cases.json'
+        with open(file_path, 'w') as f:
+            json.dump(out, f, indent=2)
+
+    def _generate_test_runner(self, factory_dir: Path):
+        """Generate a small `test_runner.py` script that can execute `test_cases.json` against the factory MQTT broker."""
+        factory_id = self.config.get('factory_id')
+        runner = f'''#!/usr/bin/env python3
+"""Test runner for factory {factory_id}
+
+Usage: python test_runner.py <test_case_name>
+
+This script publishes MQTT messages for steps defined in test_cases.json.
+"""
+import os
+import sys
+import json
+import time
+import argparse
+import paho.mqtt.client as mqtt
+
+BROKER = os.getenv('TEST_MQTT_BROKER', 'localhost')
+PORT = int(os.getenv('TEST_MQTT_PORT', 31883))
+FACTORY_ID = '{factory_id}'
+
+def publish(topic, payload):
+    client.publish(topic, json.dumps(payload))
+    print(f"PUB {topic} -> {payload}")
+
+def run_case(case_name):
+    path = os.path.join(os.path.dirname(__file__), 'test_cases.json')
+    with open(path, 'r') as f:
+        data = json.load(f)
+    case = next((c for c in data.get('test_cases', []) if c.get('name') == case_name), None)
+    if not case:
+        print(f"Test case not found: {case_name}")
+        return
+
+    for step in case.get('steps', []):
+        action = (step.get('action') or '').lower()
+        if action == 'update_sensor':
+            machine_id = step.get('machine_id')
+            topic = f"factory/{'{'}FACTORY_ID{'}'}/machines/{'{'}machine_id{'}'}/command"
+            payload = {{'command':'update_sensor','sensor_name': step.get('sensor_name'), 'value': step.get('value')}}
+            publish(topic, payload)
+
+        elif action in ('production_request','production'):
+            topic = f"factory/{'{'}FACTORY_ID{'}'}/production/request"
+            payload = {{'product_name': step.get('product_name') or step.get('product_type') or step.get('product'), 'product_details': step.get('product_details') or step.get('details') or {{}}}}
+            publish(topic, payload)
+
+        elif action in ('update_production_success_rate','update_failure_rate'):
+            topic = f"factory/{'{'}FACTORY_ID{'}'}/config"
+            if 'success_rate' in step:
+                payload = {{'production': {{'success_rate': step.get('success_rate')}}}}
+            else:
+                payload = {{'production': {{'failure_rate': step.get('failure_rate') or step.get('rate')}}}}
+            publish(topic, payload)
+
+        elif action in ('wait','delay','sleep'):
+            secs = float(step.get('seconds', step.get('delay', 0) or 0))
+            print(f"Waiting {secs}s")
+            time.sleep(secs)
+
+        else:
+            print(f"Unknown action: {action}")
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('case', help='Test case name to run')
+    args = parser.parse_args()
+
+    client = mqtt.Client(client_id=f"test_runner_{FACTORY_ID}")
+    client.connect(BROKER, PORT, 60)
+    client.loop_start()
+
+    try:
+        run_case(args.case)
+    finally:
+        client.loop_stop()
+        client.disconnect()
+'''
+
+        runner_path = factory_dir / 'test_runner.py'
+        with open(runner_path, 'w') as f:
+            f.write(runner)
+        runner_path.chmod(0o755)
 
 def main():
     parser = argparse.ArgumentParser(

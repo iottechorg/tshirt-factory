@@ -12,17 +12,10 @@ class MQTTPublisher:
         self.enable_logs = enable_logs
 
     def connect(self):
-        import time
-        attempts = 6
-        for i in range(attempts):
-            try:
-                self.client.connect(MQTT_BROKER, MQTT_PORT, 60)
-                return
-            except Exception as e:
-                wait = 2 * (i + 1)
-                logging.error(f"Error while connecting (attempt {i+1}/{attempts}): {e}; retrying in {wait}s")
-                time.sleep(wait)
-        logging.error("Failed to connect to MQTT broker after multiple attempts")
+        try:
+            self.client.connect(MQTT_BROKER, MQTT_PORT, 60)
+        except Exception as e:
+            logging.error(f"Error while connecting: {e}")
 
     def on_connect(self, client, userdata, flags, rc):
         if rc == 0:

@@ -44,14 +44,6 @@
                         </svg>
                         Tests
                     </button>
-                    <button id="openCustomizerBtn" onclick="openCustomizer()"
-                            class="tab-btn px-6 py-2 rounded-lg text-sm font-semibold transition-all duration-200 text-gray-700 hover:bg-gray-100"
-                            title="Open Custom Product Designer">
-                        <svg class="inline w-5 h-5 mr-2 -mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
-                        </svg>
-                        {{ CUSTOMER_UI_LABEL }}
-                    </button>
                 </div>
             </div>
         </div>
@@ -312,9 +304,7 @@
         const MQTT_BROKER = "{{ MQTT_BROKER }}";
         const MQTT_WS_PORT = "{{ MQTT_WS_PORT }}";
         const MQTT_TOPIC_PRODUCTION = "{{ MQTT_TOPIC_PRODUCTION }}";
-        const MACHINE_DATA_REST_REQUEST_INTERVAL = {{MACHINE_DATA_REST_REQUEST_INTERVAL}};
-        const CUSTOMER_UI_URL = "{{ CUSTOMER_UI_URL }}";
-        const CUSTOMER_UI_LABEL = "{{ CUSTOMER_UI_LABEL }}";
+        const MACHINE_DATA_REST_REQUEST_INTERVAL = "{{MACHINE_DATA_REST_REQUEST_INTERVAL}}";
 
         // Tab switching functionality
         function showTab(tabId) {

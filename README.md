@@ -1,5 +1,7 @@
 # Universal Factory Simulation Platform
 
+_Last updated: 2026-01-13_
+
 > **Generate ANY factory type (t-shirts, automotive, electronics, pharma, food) through JSON configuration. No coding required. 15-minute setup.**
 
 ---
@@ -15,6 +17,126 @@ A **zero-code, JSON-driven IoT manufacturing simulation platform** that:
 - ✅ Persists telemetry data to PostgreSQL/TimescaleDB
 
 **Supports**: T-shirt manufacturing, automotive assembly, electronics production, pharmaceutical processing, food processing — or **ANY industry** you define.
+
+---
+
+## 📚 Documentation
+
+**Read in order:**
+
+1. **[How to Use](./docs/HOW_TO_USE.md)** - Quick start, run, monitor, troubleshoot
+2. **[Factory Guide](./docs/FACTORY_GUIDE.md)** - Create custom factories step-by-step
+3. **[Architecture](./docs/ARCHITECTURE.md)** - System design, data flow, components
+4. **[Extending](./docs/EXTENDING.md)** - Add machines, services, or frontends
+5. **[Medium Article](./docs/MEDIUM_ARTICLE.md)** - High-level overview and rationale
+
+**Resources:**
+- [machine-templates/](./machine-templates/) - 7 pre-built machine types with sensor specs
+- [factory-configs/](./factory-configs/) - 5 example factories ready to use
+- [workflows/](./workflows/) - Production sequences and routing logic
+- [schemas/](./schemas/) - JSON validation schemas
+
+---
+
+## ⚡ Essential Commands
+
+### Generate Factory
+```bash
+python3 tools/factory_generator.py factory-configs/tshirt-factory.json
+```
+
+### Start & Stop
+```bash
+# Start
+cd generated-factories/tshirt-factory-001
+docker compose up --build -d
+
+# Stop
+docker compose down
+```
+
+### Place Order
+```bash
+curl -X POST http://localhost:5000/production \
+  -H "Content-Type: application/json" \
+  -d '{"product_type":"tshirt-standard","quantity":5}'
+```
+
+### Monitor
+```bash
+# View all logs
+docker compose logs -f
+
+# Monitor MQTT messages
+mosquitto_sub -h localhost -p 31883 -t 'factory/#' -v
+
+# Check service status
+docker compose ps
+
+# View orchestrator logs
+docker compose logs -f orchestrator
+```
+
+### Database Queries
+```bash
+# Connect to PostgreSQL
+docker exec -it tshirt-factory-001-postgres psql -U factory_user -d tshirt_factory
+
+# Query recent machine status
+SELECT * FROM machine_status_log ORDER BY timestamp DESC LIMIT 10;
+```
+
+### Validation
+```bash
+# Validate JSON config
+python3 -m json.tool factory-configs/your-factory.json
+
+# Check generated test cases
+jq '.test_cases | length' generated-factories/tshirt-factory-001/test_cases.json
+```
+
+---
+
+## 🔍 Key MQTT Topics
+
+```
+factory/{factory-id}/
+├─ machines/{machine-id}/
+│  ├─ telemetry          # Sensor data (published every 5s)
+│  ├─ status             # Machine state (idle/busy/error)
+│  └─ command            # Control commands (start/stop)
+├─ production/
+│  ├─ request            # New orders
+│  ├─ status             # Production progress
+│  └─ complete           # Finished orders
+└─ monitoring/
+   ├─ metrics            # Real-time KPIs
+   └─ command            # Monitoring control
+```
+
+---
+
+## 🎯 Key Innovation: Template-Based Sensor Extraction
+
+**Before**: Sensor ranges were hardcoded in test generation code (generic, factory-specific).
+
+**After (Phase 3)**: Sensor ranges are extracted from machine templates (accurate, factory-agnostic, infinite extensibility).
+
+```
+Machine Templates (JSON)        → Define: blade_temperature (20-45°C), etc.
+                                    ↓
+Generator loads templates    → Extract sensor specs from JSON
+                                    ↓
+Test cases use real ranges    → Tests are accurate for each factory
+                                    ↓
+Same code works everywhere    → Add machines with only JSON files
+```
+
+**Result**: 
+- ✅ **Factory-Agnostic** - Same code for t-shirt, auto, pharma, etc.
+- ✅ **Accurate** - Sensor ranges match actual capabilities
+- ✅ **Extensible** - Add machine types without code changes
+- ✅ **Production-Ready** - Fully tested and documented
 
 ---
 
@@ -35,7 +157,7 @@ cd factory_ui_simulator
 python3 app.py
 
 # 4. Open customer frontend
-open http://localhost:4200  # (after running: cd customer-order-ui && ng serve)
+open http://localhost:8080  # (Docker frontend, runs automatically with factory-simulator)
 ```
 
 ### Option 2: Other Factories
@@ -188,102 +310,20 @@ factory/{factory-id}/
 ## 🛠️ System Status & Features
 
 ### ✅ Production Ready
-- [x] All 9 services running (machines, orchestrator, monitoring, databases)
-- [x] MQTT messaging working (messages flowing: machines → broker → monitoring)
-- [x] Data persistence (PostgreSQL & TimescaleDB)
-- [x] Wildcard subscriptions with callback routing
-- [x] Docker-based deployment
+- [x] Template-driven factory generation (zero-code)
+- [x] 5 pre-built factory types + 7 machine templates
+- [x] MQTT-based messaging (ISA-95 compliant topics)
+- [x] PostgreSQL & TimescaleDB persistence
+- [x] Docker Compose deployment
 - [x] Multi-factory support
+- [x] Real-time telemetry & monitoring
 
-### 🎯 Included Frontends
-- [x] T-Shirt Customizer (Angular + Material + Tailwind)
-- [x] Vehicle Customizer (HTML/JS + Tailwind)
-
-### 📚 Documentation
-- **README.md** (this file) - Overview and quick start
-- **docs/ARCHITECTURE.md** - Detailed component architecture
-- **docs/EXTENDING.md** - Creating custom factories
-- **docs/MQTT_GUIDE.md** - MQTT topics and message formats
-- **docs/API_REFERENCE.md** - REST API endpoints
-
----
-
-## 📖 Documentation
-
-### For Quick Start
-👉 See the **Quick Start** section above
-
-### For Understanding Architecture
-👉 **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**
-- Three-layer system design
-- Data flow diagrams
-- Component interactions
-- Service lifecycle
-
-### For Creating Custom Factories
-👉 **[docs/EXTENDING.md](docs/EXTENDING.md)**
-- Add new machine types
-- Create custom factory configurations
-- Extend frontends
-- Modify workflows
-
-### For MQTT Integration
-👉 **[docs/MQTT_GUIDE.md](docs/MQTT_GUIDE.md)**
-- Topic structure
-- Message formats
-- Subscription patterns
-- Integration examples
-
-### For API Development
-👉 **[docs/API_REFERENCE.md](docs/API_REFERENCE.md)**
-- REST endpoints
-- WebSocket usage
-- Error handling
-- Authentication (if configured)
-
----
-
-## 🔧 Common Commands
-
-### Generate a Factory
-```bash
-python3 tools/factory_generator.py factory-configs/tshirt-factory.json
-python3 tools/factory_generator.py factory-configs/automotive-assembly-plant.json
-```
-
-### Run Generated Factory
-```bash
-cd generated-factories/tshirt-factory-001
-docker compose up --build
-```
-
-### Monitor Machine Activity (MQTT)
-```bash
-mosquitto_sub -h localhost -p 31883 -t 'factory/#' -v
-```
-
-### View Database
-```bash
-# PostgreSQL
-docker exec -it tshirt-factory-001-postgres psql -U factory_user -d tshirt_factory
-
-# Query machine data
-SELECT * FROM machine_status_log ORDER BY timestamp DESC LIMIT 10;
-```
-
-### Logs
-```bash
-# Monitor specific service
-docker logs -f tshirt-factory-001-monitoring
-docker logs -f tshirt-factory-001-orchestrator
-docker logs -f cutting-01
-```
-
-### Stop Factory
-```bash
-cd generated-factories/tshirt-factory-001
-docker compose down
-```
+### 🎯 Included
+- Customer frontends (Angular + HTML/JS)
+- REST API gateway with WebSocket
+- Automated test case generation
+- Production workflow engine
+- Monitoring & alerting service
 
 ---
 
@@ -292,11 +332,13 @@ docker compose down
 ```
 tshirt-factory/
 ├── README.md                      ← You are here
-├── docs/                          ← Detailed documentation
+├── docs/                          ← Documentation
+│   ├── HOW_TO_USE.md              (Quick start & troubleshooting)
+│   ├── FACTORY_GUIDE.md           (Create custom factories)
 │   ├── ARCHITECTURE.md            (System design)
-│   ├── EXTENDING.md               (Custom factories)
-│   ├── MQTT_GUIDE.md              (Message topics)
-│   └── API_REFERENCE.md           (REST/WebSocket APIs)
+│   ├── EXTENDING.md               (Customization)
+│   ├── MEDIUM_ARTICLE.md          (Overview)
+│   └── archive/                   (Historical docs)
 │
 ├── factory-configs/               ← Factory definitions (JSON)
 │   ├── tshirt-factory.json
@@ -373,8 +415,8 @@ tshirt-factory/
 
 1. **First time?** → Follow the [Quick Start](#-5-minute-quick-start)
 2. **Want to understand it?** → Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-3. **Creating custom factory?** → Follow [docs/EXTENDING.md](docs/EXTENDING.md)
-4. **Integrating with external system?** → Check [docs/MQTT_GUIDE.md](docs/MQTT_GUIDE.md)
+3. **Creating custom factory?** → Follow [docs/FACTORY_GUIDE.md](docs/FACTORY_GUIDE.md)
+4. **Extending the system?** → Check [docs/EXTENDING.md](docs/EXTENDING.md)
 
 ---
 

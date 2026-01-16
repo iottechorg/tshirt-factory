@@ -10,7 +10,8 @@ MQTT_WS_PORT = int(os.getenv("MQTT_WS_PORT", 9001))
 MQTT_KEEPALIVE = int(os.getenv("MQTT_KEEPALIVE", 60))
 
 # Factory Configuration
-FACTORY_SITE_ID = os.getenv("FACTORY_SITE_ID", "site-01")
+FACTORY_SITE_ID = os.getenv("FACTORY_SITE_ID", os.getenv("FACTORY_ID", "site-01"))
+print(f"DEBUG: FACTORY_SITE_ID={FACTORY_SITE_ID}, FACTORY_ID={os.getenv('FACTORY_ID')}, FACTORY_SITE_ID_ENV={os.getenv('FACTORY_SITE_ID')}")
 
 # MQTT Topic Structure (ISA-95 compliant)
 def get_machine_status_topic(machine_type, machine_id):

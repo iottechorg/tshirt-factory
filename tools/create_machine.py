@@ -176,6 +176,8 @@ def handle_command(topic, payload):
             if sensor_name and value is not None:
                 machine.update_sensor_value(sensor_name, value)
                 logger.info(f"Updated sensor {{sensor_name}} to {{value}}")
+                # Publish telemetry immediately to reflect the change
+                publish_telemetry()
 
         elif command_type == "set_failure_rate":
             rate = command.get("rate")
@@ -250,9 +252,11 @@ def main():
         logger.error("Failed to connect to MQTT broker, exiting...")
         return
 
-    # Subscribe to command topic
+    # Subscribe to both canonical and legacy command topics
     command_topic = get_machine_command_topic("{machine_name}", machine_id)
+    legacy_command_topic = f"factory/{{FACTORY_SITE_ID}}/machines/{{machine_id}}/command"
     mqtt_client.subscribe(command_topic, handle_command)
+    mqtt_client.subscribe(legacy_command_topic, handle_command)
 
     # Start MQTT loop
     mqtt_client.loop_start()

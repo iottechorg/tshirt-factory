@@ -12,8 +12,8 @@ services:
     ports:
       - 5002:5002
     environment:
-        MQTT_BROKER: 192.168.188.117 # it seems jquery cannot resolve mqtt address
-        MQTT_PORT: 1883
+        MQTT_BROKER: host.docker.internal # Connect to MQTT broker from generated factory
+        MQTT_PORT: 31883 # Use the host-mapped port from generated factory
         MQTT_WS_PORT: 9001
         WEBAPP_PORT: 5002 # The flask app port number, if this changes, change also the port tuple above
         MACHINE_DATA_PUBLISH_INTERVAL: 10 # in seconds

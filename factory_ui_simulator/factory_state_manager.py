@@ -48,9 +48,12 @@ class FactoryStateManager:
     def connect(self):
         """Connect to MQTT broker and start subscriptions."""
         try:
-            self.mqtt_client = mqtt.Client(client_id=f"factory_ui_state_{self.factory_site_id}")
+            import time
+            client_id = f"factory_ui_state_{self.factory_site_id}_{int(time.time())}"
+            self.mqtt_client = mqtt.Client(client_id=client_id)
             self.mqtt_client.on_connect = self._on_connect
             self.mqtt_client.on_message = self._on_message
+            self.mqtt_client.on_disconnect = self._on_disconnect
             
             logger.info(f"Connecting to MQTT broker {self.mqtt_broker}:{self.mqtt_port}")
             self.mqtt_client.connect(self.mqtt_broker, self.mqtt_port, 60)
@@ -66,13 +69,29 @@ class FactoryStateManager:
             logger.info("MQTT state manager connected to broker")
             self.is_connected = True
             # Subscribe to per-machine topics (telemetry/status) using wildcard
-            client.subscribe(f"factory/{self.factory_site_id}/machines/+/+")
-            # Subscribe to production-level status (aggregated by orchestrator)
-            client.subscribe(f"factory/{self.factory_site_id}/production/status")
-            logger.info(f"Subscribed to factory/{self.factory_site_id}/machines/+/+ and /production/status")
+            # Support both legacy 'machines' topic layout and canonical 'machine/{type}/{id}' layout
+            try:
+                client.subscribe(f"factory/{self.factory_site_id}/machines/+/+")
+                client.subscribe(f"factory/{self.factory_site_id}/machine/#")
+                client.subscribe(f"factory/{self.factory_site_id}/production/#")
+                logger.info(f"Subscribed to factory/{self.factory_site_id}/machines/+/+, machine/# and /production/#")
+            except Exception as e:
+                logger.error(f"Error subscribing to topics: {e}")
         else:
             logger.error(f"MQTT connection failed with rc={rc}")
             self.is_connected = False
+    
+    def _on_disconnect(self, client, userdata, rc):
+        """MQTT on_disconnect callback."""
+        self.is_connected = False
+        if rc != 0:
+            logger.info(f"MQTT state manager disconnected unexpectedly with code: {rc}")
+            # Attempt to reconnect
+            logger.info("Attempting to reconnect MQTT state manager...")
+            try:
+                self.mqtt_client.reconnect()
+            except Exception as e:
+                logger.error(f"MQTT state manager reconnection failed: {e}")
     
     def _on_message(self, client, userdata, msg):
         """MQTT on_message callback."""
@@ -82,24 +101,61 @@ class FactoryStateManager:
             # Per-machine topics: factory/{factory_id}/machines/{machine_id}/{data_type}
             if f"factory/{self.factory_site_id}/machines/" in topic:
                 self._handle_machine_topic(topic, payload)
-            elif f"factory/{self.factory_site_id}/production/status" in topic:
-                self._handle_production_status(payload)
+            elif f"factory/{self.factory_site_id}/production/" in topic:
+                self._handle_production_topic(topic, payload)
             else:
                 logger.debug(f"Unhandled MQTT topic: {topic}")
         except Exception as e:
             logger.error(f"Error processing MQTT message: {e}")
 
+    def _handle_production_topic(self, topic: str, payload: str):
+        """Handle production related topics (status, results)."""
+        try:
+            data = json.loads(payload)
+            # Handle both status and result
+            with self.state_lock:
+                if self.factory_site_id not in self.factory_states:
+                    self.factory_states[self.factory_site_id] = {"machines": {}, "production_status": None}
+                
+                # Check if it's a result or just status
+                if topic.endswith("/result"):
+                    # For results, we might want to keep a history or just the latest
+                    self.factory_states[self.factory_site_id]["production_status"] = data
+                    logger.info(f"Received production RESULT for order {data.get('order_id')}: {data.get('status')}")
+                elif topic.endswith("/status"):
+                    # Status updates
+                    self.factory_states[self.factory_site_id]["production_status"] = data
+                    logger.debug(f"Received production status update for order {data.get('order_id')}: {data.get('status')}")
+        except Exception as e:
+            logger.error(f"Error handling production topic {topic}: {e}")
+
     def _handle_machine_topic(self, topic: str, payload: str):
         """Handle per-machine topics and aggregate into factory state."""
         try:
             parts = topic.split('/')
-            # expected: ["factory", factory_id, "machines", machine_id, data_type]
+            # Handle both formats:
+            # - legacy: factory/{site}/machines/{machine_id}/{data_type}
+            # - canonical: factory/{site}/machine/{machine_type}/{machine_id}/{data_type}
             if len(parts) < 5:
                 logger.warning(f"Unexpected machine topic format: {topic}")
                 return
 
-            machine_id = parts[3]
-            data_type = parts[4]  # 'status' or 'telemetry' or other
+            if parts[2] == 'machines':
+                # legacy layout
+                machine_type = None
+                machine_id = parts[3]
+                data_type = parts[4]
+            elif parts[2] == 'machine':
+                # canonical layout
+                if len(parts) < 6:
+                    logger.warning(f"Unexpected canonical machine topic format: {topic}")
+                    return
+                machine_type = parts[3]
+                machine_id = parts[4]
+                data_type = parts[5]
+            else:
+                logger.warning(f"Unhandled machine topic prefix: {parts[2]} in {topic}")
+                return
             try:
                 data = json.loads(payload)
             except Exception:
@@ -113,17 +169,22 @@ class FactoryStateManager:
                 machines_map = self.factory_states[self.factory_site_id]["machines"]
                 if machine_id not in machines_map:
                     # initialize machine entry
+                    inferred_type = machine_type or machine_id.rsplit('-', 1)[0]
                     machines_map[machine_id] = {
                         "id": machine_id,
                         "machine_id": machine_id,
-                        "machine_type": machine_id.rsplit('-', 1)[0],
+                        "machine_type": inferred_type,
                         "instance_name": data.get("instance_name") or machine_id,
+                        "name": data.get("instance_name") or machine_id,
                         "sensor_data": {},
                         "process_data": {},
                         "runtime_state": "unknown",
                     }
 
                 entry = machines_map[machine_id]
+                # ensure machine_type is present and updated from canonical topics
+                if machine_type:
+                    entry['machine_type'] = machine_type
                 if data_type == "telemetry":
                     # telemetry payload expected to contain sensor_data
                     if isinstance(data, dict):
@@ -174,7 +235,7 @@ class FactoryStateManager:
         """Get current machines state for factory."""
         with self.state_lock:
             if self.factory_site_id in self.factory_states:
-                return self.factory_states[self.factory_site_id].get("machines", [])
+                return list(self.factory_states[self.factory_site_id].get("machines", {}).values())
         return []
     
     def get_machine(self, machine_id: str) -> Optional[Dict[str, Any]]:

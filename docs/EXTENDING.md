@@ -429,8 +429,8 @@ export class MqttService {
 
 6. **Serve frontend**
 ```bash
-ng serve
-# Open http://localhost:4200
+# For Docker deployment, frontend runs on http://localhost:8080
+open http://localhost:8080
 ```
 
 ### Option 2: Create HTML/JS Frontend

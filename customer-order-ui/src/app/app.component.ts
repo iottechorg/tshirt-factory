@@ -1,8 +1,8 @@
 import { Component } from '@angular/core';
-import { TshirtSelectorComponent } from './tshirt-selector/tshirt-selector.component';
+import { ProductCreatorComponent } from './product-creator/product-creator.component';
 @Component({
   selector: 'app-root',
-  imports: [TshirtSelectorComponent],
+  imports: [ProductCreatorComponent],
   templateUrl: './app.component.html',
   styleUrl: './app.component.css'
 })

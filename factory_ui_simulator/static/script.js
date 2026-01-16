@@ -5,6 +5,7 @@ let currentMachineSensors = {}
 
 let currentMachines = [];
 let currentSensors = {};
+let currentTestCases = [];
 let randomProductionIntervalId = null;
 function fetchMachines() {
     $.get(`${API_BASE_URL}/machines`, function(data) {
@@ -26,7 +27,23 @@ function fetchMachines() {
           data.forEach(machine => {
              let sensorKeys =  Object.keys(machine.sensor_data);
               let sensor_info = sensorKeys.map((key) => `<div class="text-xs"><span class="font-medium text-gray-700">${key}:</span> <span class="text-gray-900">${machine.sensor_data[key].toFixed(2)}</span></div>`)
-            machineTableBody.append(`<tr><td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 w-1/4">${machine.name}</td><td class="px-6 py-4 whitespace-nowrap text-xs text-gray-500 font-mono w-1/4">${machine.id}</td><td class="px-6 py-4 text-sm text-gray-900 w-1/2">${sensor_info.join("")}</td></tr>`);
+              
+              // Add Machine Status and Failure Rate for better visibility
+              let statusClass = "text-gray-900";
+              if (machine.runtime_state === 'error') statusClass = "text-red-600 font-bold";
+              else if (machine.runtime_state === 'busy') statusClass = "text-blue-600 font-medium";
+              
+              let failureRateVal = machine.failure_rate !== undefined ? (machine.failure_rate * 100).toFixed(1) + "%" : "N/A";
+
+            machineTableBody.append(`
+                <tr>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 w-1/5">${machine.name}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-xs text-gray-500 font-mono w-1/6">${machine.id}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm ${statusClass} w-1/6">${machine.runtime_state || 'unknown'}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 w-1/6">${failureRateVal}</td>
+                    <td class="px-6 py-4 text-sm text-gray-900 w-1/3">${sensor_info.join("")}</td>
+                </tr>`);
+            
             if (JSON.stringify(Object.keys(machine.sensor_data)) !== JSON.stringify(currentSensors[machine.name] || [])) {
                 currentSensors[machine.name] = Object.keys(machine.sensor_data);
                  hasChanged = true;
@@ -52,7 +69,7 @@ function updateMachineFailureRate(machineId, failureRate) {
         success: function(data) {
             console.log("Machine failure rate updated:", data);
            fetchMachines();
-           $('#updateMachineForm').collapse('hide');
+           $('#updateMachineForm').addClass('hidden');
         },
         error: function(error) {
             console.log("Error while updating machine:", error);
@@ -123,54 +140,37 @@ function updateProductionConfig(successRate, failureRateMultiplier) {
  }
 
 function fetchTestCases() {
-    // Embedded test cases data
-    const data = {
-        "test_cases": [
-            {
-                "name": "normal_production",
-                "description": "Runs a normal production scenario."
-            },
-            {
-                "name": "high_temp_cutting",
-                "description": "Simulates high temperature during cutting."
-            },
-            {
-                "name": "low_thread_tension_sewing",
-                "description": "Simulates low thread tension during sewing."
-            },
-            {
-                "name": "sensor_failure_printing",
-                "description": "Simulates sensor failure during printing."
-            },
-            {
-                "name": "power_fluctuation_ironing",
-                "description": "Simulates power fluctuation during ironing."
-            }
-        ]
-    };
-
-    let testSelect = $('#testSelect');
-    testSelect.empty();
-    testSelect.append(`<option value="All">All</option>`);
-    data.test_cases.forEach((test, index) => {
-        testSelect.append(`<option value="${index}">${test.name}: ${test.description}</option>`)
+    $.get(`${API_BASE_URL}/test_cases.json`, function(data) {
+        if (!data || !data.test_cases) return;
+        
+        currentTestCases = data.test_cases;
+        let testSelect = $('#testSelect');
+        testSelect.empty();
+        testSelect.append(`<option value="All">All Test Cases</option>`);
+        
+        currentTestCases.forEach((test, index) => {
+            testSelect.append(`<option value="${test.name}">${test.name}: ${test.description}</option>`)
+        });
+        console.log("Loaded test cases:", currentTestCases.length);
+    }).fail(function() {
+        console.error("Failed to fetch test cases from server");
     });
 }
 
 function triggerTestCase(testCaseName) {
     $.ajax({
-        url: `${API_BASE_URL}/test/${testCaseName}`,
+        url: `${API_BASE_URL}/test/run/${testCaseName}`,
         type: 'POST',
         success: function(data) {
-           console.log("Test case started:", data);
-            $('#test-cases-status').html('<p class="text-success">Test case started.</p>');
-           setTimeout(function() {
-               $('#test-cases-status').empty()
-           }, 5000);
+            console.log(`Test case ${testCaseName} started:`, data);
+            $('#test-cases-status').html(`<p class="text-green-600">Test case <b>${testCaseName}</b> started.</p>`);
+             setTimeout(function() {
+                $('#test-cases-status').empty()
+            }, 5000);
         },
-       error: function(error){
-         console.log("Error while running test case:", error)
-          $('#test-cases-status').html('<p class="text-danger">Error running test case</p>');
+        error: function(error){
+           console.log("Error while running test case:", error)
+           $('#test-cases-status').html(`<p class="text-red-600">Error: ${error.responseJSON ? error.responseJSON.message : 'failed to start test'}</p>`);
         }
     });
 }
@@ -354,28 +354,16 @@ $(document).ready(function() {
     });
     $('#runTestCaseBtn').click(function() {
        let testCaseValue = $('#testSelect').val();
-      if(testCaseValue == "All"){
-            // Embedded test cases data
-            const testCases = [
-                "normal_production",
-                "high_temp_cutting",
-                "low_thread_tension_sewing", 
-                "sensor_failure_printing",
-                "power_fluctuation_ironing"
-            ];
-            testCases.forEach(name => {
-                triggerTestCase(name);
-            });
-       }else {
-           // testCaseValue is the index, get the name from embedded data
-           const testCases = [
-               "normal_production",
-               "high_temp_cutting",
-               "low_thread_tension_sewing",
-               "sensor_failure_printing", 
-               "power_fluctuation_ironing"
-           ];
-           triggerTestCase(testCases[parseInt(testCaseValue)]);
+       if(testCaseValue === "All"){
+            if (currentTestCases.length > 0) {
+                currentTestCases.forEach(tc => {
+                    triggerTestCase(tc.name);
+                });
+            }
+       } else if (testCaseValue) {
+           triggerTestCase(testCaseValue);
+       } else {
+           alert("Please select a test case!");
        }
     });
     $('#generateRandomTestCaseBtn').click(function() {
@@ -411,22 +399,55 @@ $(document).ready(function() {
     function onConnect() {
          console.log("MQTT Connected");
          client.subscribe(MQTT_TOPIC_PRODUCTION);
+         client.subscribe(`factory/${FACTORY_SITE_ID}/test/status`);
      }
      function onConnectionLost(responseObject) {
         console.log("MQTT Connection Lost: "+responseObject.errorMessage)
     }
     function onMessageArrived(message) {
-        let productionData;
+        let payload;
         try{
-           productionData = JSON.parse(message.payloadString);
-      } catch(e){
+           payload = JSON.parse(message.payloadString);
+        } catch(e){
           return;
-       }
+        }
 
-        console.log("Production data received:", productionData);
-       let table = $('#production-table')
+        const topic = message.destinationName;
+        
+        // Handle Test Status Updates
+        if (topic.endsWith('/test/status')) {
+            console.log("Test progress update:", payload);
+            let statusHtml = "";
+            if (payload.status === "running") {
+                const pct = Math.round(((payload.step_index + 1) / payload.total_steps) * 100);
+                statusHtml = `
+                    <div class="bg-blue-50 border-l-4 border-blue-400 p-4 mb-4">
+                        <p class="text-blue-700 font-medium">Running Test: ${payload.test_name}</p>
+                        <div class="mt-2 w-full bg-gray-200 rounded-full h-2.5">
+                            <div class="bg-blue-600 h-2.5 rounded-full" style="width: ${pct}%"></div>
+                        </div>
+                        <p class="text-xs text-blue-500 mt-1">Step ${payload.step_index + 1} of ${payload.total_steps}: ${payload.action}</p>
+                    </div>`;
+            } else if (payload.status === "completed") {
+                statusHtml = `<p class="text-green-600 font-bold p-2 bg-green-50 rounded">✓ Test <b>${payload.test_name}</b> completed successfully!</p>`;
+                setTimeout(() => $('#test-cases-status').empty(), 5000);
+            } else if (payload.status === "error") {
+                statusHtml = `<p class="text-red-600 font-bold p-2 bg-red-50 rounded">✗ Test <b>${payload.test_name}</b> failed: ${payload.error}</p>`;
+            }
+            $('#test-cases-status').html(statusHtml);
+            return;
+        }
+
+        // Handle Production Updates (existing logic)
+        console.log("Production data received:", payload);
+        const productionData = payload;
+        const orderId = productionData["order_id"] || productionData["production_id"] || "-";
+        const productName = productionData["product_name"] || "-";
+        const status = productionData["status"] || "-";
+        const steps = productionData["step_results"] || productionData["steps"] || null;
+        
         let tableBody = $('#production-table-body')
-       if (!table.length){
+        if (!$('#production-table').length){
           $('#production-results').append(
            `<div class="overflow-x-auto">
                <table id="production-table" class="min-w-full divide-y divide-gray-200">
@@ -444,19 +465,160 @@ $(document).ready(function() {
           );
            tableBody = $('#production-table-body')
         }
-        let step_information =  productionData["steps"] ? productionData["steps"].map((s) => ` Step: ${s.operation} status: ${s.status}`).join(",") : ""
-        let row = `
-              <tr>
-                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${productionData["product_name"] || "-"}</td>
-                   <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${productionData["production_id"] || "-"}</td>
-                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${productionData["status"] || "-"}</td>
-                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${step_information}</td>
-                </tr>`;
-         tableBody.prepend(row)
+        
+        // Use a unique ID to update existing rows instead of always prepending
+        let existingRow = $(`tr[data-order-id="${orderId}"]`);
+        
+        if (existingRow.length) {
+            // Update only fields that are provided
+            if (productName !== "-") existingRow.find('.product-name').text(productName);
+            existingRow.find('.status').text(status)
+                .removeClass('text-red-600 text-green-600 text-blue-600')
+                .addClass(status === 'failed' ? 'text-red-600' : (status === 'completed' || status === 'success' ? 'text-green-600' : 'text-blue-600'));
+            
+            if (steps) {
+                let step_info = steps.map((s) => ` ${s.operation}: ${s.status}`).join(",");
+                existingRow.find('.steps').text(step_info);
+            }
+        } else {
+            let step_info = steps ? steps.map((s) => ` ${s.operation}: ${s.status}`).join(",") : "Processing...";
+            let row = `
+              <tr data-order-id="${orderId}">
+                  <td class="product-name px-6 py-4 whitespace-nowrap text-sm text-gray-900">${productName}</td>
+                   <td class="order-id px-6 py-4 whitespace-nowrap text-sm font-mono text-xs text-gray-500">${orderId}</td>
+                  <td class="status px-6 py-4 whitespace-nowrap text-sm font-medium ${status === 'failed' ? 'text-red-600' : (status === 'completed' || status === 'success' ? 'text-green-600' : 'text-blue-600')}">${status}</td>
+                 <td class="steps px-6 py-4 text-sm text-gray-500">${step_info}</td>
+               </tr>`;
+            tableBody.prepend(row);
+        }
+
          const maxRows = 10;
          const rows = tableBody.find('tr');
            if (rows.length > maxRows) {
                 rows.slice(maxRows).remove();
             }
      }
+});
+
+// ===== NEW AUTOMATION FEATURES =====
+
+let productionAutomationRunning = false;
+
+// Generate and run random test
+function generateAndRunRandomTest() {
+    $.ajax({
+        url: `${API_BASE_URL}/test/generate_random`,
+        type: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ condition_type: null }), // Let server pick random
+        success: function(data) {
+            console.log("Random test generated and started:", data);
+            showTestStatus("✓ Random test started: " + data.test_case.name, "success");
+        },
+        error: function(error) {
+            console.log("Error generating random test:", error);
+            showTestStatus("✗ Error generating random test", "error");
+        }
+    });
+}
+
+// Start random production
+function startRandomProduction(intervalSeconds) {
+    $.ajax({
+        url: `${API_BASE_URL}/automation/production/start`,
+        type: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ interval_seconds: intervalSeconds }),
+        success: function(data) {
+            console.log("Production automation started:", data);
+            productionAutomationRunning = true;
+            $('#startRandomProductionBtn').prop('disabled', true).addClass('opacity-50 cursor-not-allowed');
+            $('#stopRandomProductionBtn').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed').addClass('bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700');
+            showTestStatus(`✓ Random production started (interval: ${intervalSeconds}s)`, "success");
+        },
+        error: function(error) {
+            console.log("Error starting production automation:", error);
+            showTestStatus("✗ Error starting random production", "error");
+        }
+    });
+}
+
+// Stop random production
+function stopRandomProduction() {
+    $.ajax({
+        url: `${API_BASE_URL}/automation/production/stop`,
+        type: 'POST',
+        success: function(data) {
+            console.log("Production automation stopped:", data);
+            productionAutomationRunning = false;
+            $('#startRandomProductionBtn').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+            $('#stopRandomProductionBtn').prop('disabled', true).addClass('opacity-50 cursor-not-allowed').removeClass('bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700').addClass('bg-gray-400');
+            showTestStatus(`✓ Random production stopped (total: ${data.total_requests} requests)`, "success");
+        },
+        error: function(error) {
+            console.log("Error stopping production automation:", error);
+            showTestStatus("✗ Error stopping random production", "error");
+        }
+    });
+}
+
+// Clear production results and stop automation
+function clearProductionResults() {
+    $.ajax({
+        url: `${API_BASE_URL}/automation/production/clear`,
+        type: 'POST',
+        success: function(data) {
+            console.log("Production automation cleared:", data);
+            productionAutomationRunning = false;
+            $('#production-table-body').empty();
+            $('#startRandomProductionBtn').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
+            $('#stopRandomProductionBtn').prop('disabled', true).addClass('opacity-50 cursor-not-allowed').addClass('bg-gray-400');
+            showTestStatus("✓ Production results cleared", "success");
+        },
+        error: function(error) {
+            console.log("Error clearing production results:", error);
+            showTestStatus("✗ Error clearing production results", "error");
+        }
+    });
+}
+
+// Show test/automation status message
+function showTestStatus(message, type) {
+    const statusDiv = $('#test-cases-status');
+    const className = type === 'success' ? 'bg-green-50 text-green-800 border-green-200' : 
+                      type === 'error' ? 'bg-red-50 text-red-800 border-red-200' : 
+                      'bg-blue-50 text-blue-800 border-blue-200';
+    
+    const html = `
+        <div class="bg-white rounded-lg shadow-md p-4 border-l-4 ${className}">
+            <p class="font-semibold">${message}</p>
+        </div>
+    `;
+    
+    statusDiv.html(html);
+    setTimeout(() => {
+        statusDiv.fadeOut(500, function() { $(this).html(''); $(this).show(); });
+    }, 4000);
+}
+
+// Event handlers
+$(document).ready(function() {
+    // Random test button
+    $('#generateRandomTestCaseBtn').click(function() {
+        generateAndRunRandomTest();
+    });
+    
+    // Random production buttons
+    $('#startRandomProductionBtn').click(function() {
+        const interval = parseInt($('#randomProductionInterval').val()) || 5;
+        startRandomProduction(interval);
+    });
+    
+    $('#stopRandomProductionBtn').click(function() {
+        stopRandomProduction();
+    });
+    
+    $('#clearProductionResultsBtn').click(function() {
+        clearProductionResults();
+    });
 });

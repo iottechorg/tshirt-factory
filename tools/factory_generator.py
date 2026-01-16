@@ -401,7 +401,10 @@ class {class_name}Machine(BaseMachine):
                 'POSTGRES_DB': 'factory_timeseries'
             },
             'ports': ['5433:5432'],
-            'volumes': ['timescaledb_data:/var/lib/postgresql/data'],
+            'volumes': [
+                'timescaledb_data:/var/lib/postgresql/data',
+                './database/init-timescaledb.sql:/docker-entrypoint-initdb.d/init-timescaledb.sql'
+            ],
             'networks': [f"{self.config['factory_id']}-network"],
             'restart': 'unless-stopped',
             'healthcheck': {
@@ -596,6 +599,11 @@ class MachineService:
     def on_command(self, topic, payload):
         """Handle incoming commands"""
         try:
+            # Parse JSON if it's a string
+            if isinstance(payload, str):
+                import json
+                payload = json.loads(payload)
+
             command = payload.get('command')
             logger.info(f"Received command: {{command}}")
 
@@ -606,6 +614,14 @@ class MachineService:
             elif command == 'set_failure_rate':
                 rate = payload.get('rate', 0.01)
                 self.machine.set_failure_rate(rate)
+            elif command == 'update_sensor':
+                sensor_name = payload.get('sensor_name')
+                value = payload.get('value')
+                if sensor_name and value is not None:
+                    self.machine.update_sensor_value(sensor_name, value)
+                    logger.info(f"Updated sensor {{sensor_name}} to {{value}}")
+                    # Publish telemetry immediately
+                    self.publish_telemetry_once()
 
         except Exception as e:
             logger.error(f"Error handling command: {{e}}")
@@ -613,6 +629,11 @@ class MachineService:
     def on_operation(self, topic, payload):
         """Handle operation requests"""
         try:
+            # Parse JSON if it's a string
+            if isinstance(payload, str):
+                import json
+                payload = json.loads(payload)
+
             logger.info(f"Processing operation: {{payload}}")
             result = self.machine.process_operation(payload)
 
@@ -647,6 +668,25 @@ class MachineService:
                 logger.error(f"Error publishing telemetry: {{e}}")
                 time.sleep(5)
 
+    def publish_telemetry_once(self):
+        """Publish telemetry data once"""
+        try:
+            # Update sensors
+            self.machine.update_sensors()
+
+            # Get telemetry
+            telemetry = self.machine.get_telemetry()
+
+            # Publish to MQTT
+            self.mqtt_client.publish(self.telemetry_topic, telemetry)
+
+            # Publish status
+            status = self.machine.get_status()
+            self.mqtt_client.publish(self.status_topic, status)
+
+        except Exception as e:
+            logger.error(f"Error publishing telemetry once: {{e}}")
+
     def start(self):
         """Start the machine service"""
         logger.info(f"Starting machine service: {{self.machine_id}}")
@@ -657,6 +697,8 @@ class MachineService:
 
         # Subscribe to topics
         self.mqtt_client.subscribe(self.command_topic, self.on_command)
+        canonical_command_topic = f"factory/{{self.factory_site_id}}/machine/{{self.machine_type}}/{{self.machine_id}}/command"
+        self.mqtt_client.subscribe(canonical_command_topic, self.on_command)
         self.mqtt_client.subscribe(self.operation_topic, self.on_operation)
 
         # Start machine
@@ -690,144 +732,15 @@ if __name__ == "__main__":
     service.start()
 '''
 
-        service_file = factory_dir / "services" / "machines" / machine_type / "machine_service.py"
-        service_file.parent.mkdir(parents=True, exist_ok=True)
-
+        # Write machine service code to file
+        machine_dir = factory_dir / "services" / "machines" / machine_type
+        machine_dir.mkdir(parents=True, exist_ok=True)
+        service_file = machine_dir / "machine_service.py"
+        
         with open(service_file, 'w') as f:
             f.write(machine_service_code)
 
-        # Make it executable
-        os.chmod(service_file, 0o755)
-
-    def generate_database_init_script(self) -> str:
-        """Generate PostgreSQL initialization script for the factory"""
-        db_name = self.config['database_config']['connection']['database']
-        
-        init_sql = f'''-- PostgreSQL Initialization Script for Factory Database
-
--- Create database user if not exists
-DO
-$do$
-BEGIN
-   IF NOT EXISTS (
-      SELECT FROM pg_catalog.pg_user
-      WHERE usename = 'factory_user'
-   ) THEN
-      CREATE USER factory_user WITH PASSWORD 'factory_pass';
-   END IF;
-END
-$do$;
-
--- Create main database (if not connected via postgres service environment variable)
-CREATE DATABASE IF NOT EXISTS {db_name};
-GRANT ALL PRIVILEGES ON DATABASE {db_name} TO factory_user;
-
--- Connect to the database
-\\c {db_name};
-
--- Machines table
-CREATE TABLE IF NOT EXISTS machines (
-    machine_id VARCHAR(100) PRIMARY KEY,
-    machine_type VARCHAR(50) NOT NULL,
-    machine_name VARCHAR(100) NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Production orders table
-CREATE TABLE IF NOT EXISTS production_orders (
-    order_id VARCHAR(100) PRIMARY KEY,
-    product_name VARCHAR(200) NOT NULL,
-    product_details JSONB,
-    status VARCHAR(50) NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    completed_at TIMESTAMP
-);
-
--- Production steps table
-CREATE TABLE IF NOT EXISTS production_steps (
-    step_id SERIAL PRIMARY KEY,
-    order_id VARCHAR(100) REFERENCES production_orders(order_id),
-    step_name VARCHAR(50) NOT NULL,
-    machine_id VARCHAR(100) REFERENCES machines(machine_id),
-    status VARCHAR(50) NOT NULL,
-    process_data JSONB,
-    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    completed_at TIMESTAMP,
-    error_message TEXT
-);
-
--- Machine status log table
-CREATE TABLE IF NOT EXISTS machine_status_log (
-    log_id SERIAL PRIMARY KEY,
-    machine_id VARCHAR(100) REFERENCES machines(machine_id),
-    runtime_state VARCHAR(50) NOT NULL,
-    total_operations INTEGER,
-    failed_operations INTEGER,
-    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Machine telemetry table (for PostgreSQL storage when TimescaleDB unavailable)
-CREATE TABLE IF NOT EXISTS machine_telemetry (
-    telemetry_id SERIAL PRIMARY KEY,
-    machine_id VARCHAR(100) NOT NULL,
-    machine_type VARCHAR(50) NOT NULL,
-    sensor_data JSONB NOT NULL,
-    runtime_state VARCHAR(50) NOT NULL,
-    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Create indexes for better performance
-CREATE INDEX IF NOT EXISTS idx_orders_status ON production_orders(status);
-CREATE INDEX IF NOT EXISTS idx_orders_created ON production_orders(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_steps_order ON production_steps(order_id);
-CREATE INDEX IF NOT EXISTS idx_status_log_machine ON machine_status_log(machine_id, timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_telemetry_machine ON machine_telemetry(machine_id, timestamp DESC);
-
--- Grant permissions
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO factory_user;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO factory_user;
-
--- Insert sample machines
-INSERT INTO machines (machine_id, machine_type, machine_name) VALUES
-    ('cutting-01', 'cutting', 'Cutting Machine 01'),
-    ('sewing-01', 'sewing', 'Sewing Machine 01'),
-    ('ironing-01', 'ironing', 'Ironing Machine 01'),
-    ('printing-01', 'printing', 'Printing Machine 01')
-ON CONFLICT (machine_id) DO NOTHING;
-'''
-        return init_sql
-
-    def generate_mqtt_config(self, factory_dir: Path):
-        """Generate mosquitto.conf for MQTT broker"""
-        mqtt_config = '''# Mosquitto Configuration
-listener 1883
-protocol mqtt
-
-listener 9001
-protocol websockets
-
-allow_anonymous true
-
-# Persistence
-persistence true
-persistence_location /mosquitto/data/
-
-# Logging
-log_dest file /mosquitto/log/mosquitto.log
-log_dest stdout
-log_type all
-'''
-
-        mqtt_dir = factory_dir / "mqtt"
-        mqtt_dir.mkdir(exist_ok=True)
-
-        config_file = mqtt_dir / "mosquitto.conf"
-        with open(config_file, 'w') as f:
-            f.write(mqtt_config)
-
-        print(f"  ✓ Generated MQTT config")
+        print(f"  ✓ Generated machine service wrapper for {machine_type}")
 
     def update_docker_compose_with_services(self, compose: Dict) -> Dict:
         """Add orchestrator and monitoring services to docker-compose"""
@@ -879,7 +792,10 @@ log_type all
                 'TIMESCALE_USER': 'factory_user',
                 'TIMESCALE_PASSWORD': 'factory_pass'
             },
-            'depends_on': ['postgres', 'timescaledb'],
+            'depends_on': {
+                'postgres': {'condition': 'service_started'},
+                'timescaledb': {'condition': 'service_healthy'}
+            },
             'networks': [network],
             'restart': 'unless-stopped'
         }
@@ -1074,14 +990,191 @@ if __name__ == "__main__":
         dockerfile = svc_dir / 'Dockerfile'
         dockerfile_content = f'''FROM python:3.11-slim
 WORKDIR /app
-COPY requirements.txt /app/requirements.txt
+COPY services/config_publisher/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
-COPY publish_config.py /app/publish_config.py
-COPY ../../../factory-config.json /app/factory-config.json
+COPY services/config_publisher/publish_config.py /app/publish_config.py
+COPY factory-config.json /app/factory-config.json
 CMD ["python", "/app/publish_config.py"]
 '''
         with open(dockerfile, 'w') as f:
             f.write(dockerfile_content)
+
+
+    def generate_database_init_script(self) -> str:
+        """Generate PostgreSQL initialization script"""
+        db_name = self.config['database_config']['connection']['database']
+        db_user = self.config['database_config']['connection']['user']
+        db_pass = self.config['database_config']['connection']['password']
+
+        init_sql = f'''-- PostgreSQL Initialization Script for Factory Database
+
+-- Create database user if not exists
+DO
+$do$
+BEGIN
+   IF NOT EXISTS (
+      SELECT FROM pg_catalog.pg_user
+      WHERE usename = '{db_user}'
+   ) THEN
+      CREATE USER {db_user} WITH PASSWORD '{db_pass}';
+   END IF;
+END
+$do$;
+
+-- Create main database (if not connected via postgres service environment variable)
+CREATE DATABASE IF NOT EXISTS {db_name};
+GRANT ALL PRIVILEGES ON DATABASE {db_name} TO {db_user};
+
+-- Connect to the database
+\\c {db_name};
+
+-- Machines table
+CREATE TABLE IF NOT EXISTS machines (
+    machine_id VARCHAR(100) PRIMARY KEY,
+    machine_type VARCHAR(50) NOT NULL,
+    machine_name VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Production orders table
+CREATE TABLE IF NOT EXISTS production_orders (
+    order_id VARCHAR(100) PRIMARY KEY,
+    product_name VARCHAR(200) NOT NULL,
+    product_details JSONB,
+    status VARCHAR(50) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP
+);
+
+-- Production steps table
+CREATE TABLE IF NOT EXISTS production_steps (
+    step_id SERIAL PRIMARY KEY,
+    order_id VARCHAR(100) REFERENCES production_orders(order_id),
+    step_name VARCHAR(50) NOT NULL,
+    machine_id VARCHAR(100) REFERENCES machines(machine_id),
+    status VARCHAR(50) NOT NULL,
+    process_data JSONB,
+    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP,
+    error_message TEXT
+);
+
+-- Machine status log table
+CREATE TABLE IF NOT EXISTS machine_status_log (
+    log_id SERIAL PRIMARY KEY,
+    machine_id VARCHAR(100) REFERENCES machines(machine_id),
+    runtime_state VARCHAR(50) NOT NULL,
+    total_operations INTEGER,
+    failed_operations INTEGER,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Machine telemetry table (for PostgreSQL storage when TimescaleDB unavailable)
+CREATE TABLE IF NOT EXISTS machine_telemetry (
+    telemetry_id SERIAL PRIMARY KEY,
+    machine_id VARCHAR(100) NOT NULL,
+    machine_type VARCHAR(50) NOT NULL,
+    sensor_data JSONB NOT NULL,
+    runtime_state VARCHAR(50) NOT NULL,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create indexes for better performance
+CREATE INDEX IF NOT EXISTS idx_orders_status ON production_orders(status);
+CREATE INDEX IF NOT EXISTS idx_orders_created ON production_orders(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_steps_order ON production_steps(order_id);
+CREATE INDEX IF NOT EXISTS idx_status_log_machine ON machine_status_log(machine_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_telemetry_machine ON machine_telemetry(machine_id, timestamp DESC);
+
+-- Grant permissions
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO {db_user};
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO {db_user};
+
+-- (No sample machines inserted; machine registry is populated at runtime)
+'''
+        return init_sql
+
+
+    def generate_timescaledb_init_script(self) -> str:
+        """Generate TimescaleDB initialization script"""
+        db_name = self.config['database_config']['connection']['database']
+        db_user = self.config['database_config']['connection']['user']
+        db_pass = self.config['database_config']['connection']['password']
+
+        init_sql = f'''-- TimescaleDB Initialization Script for Factory Time-Series Database
+
+-- Create database user if not exists
+DO
+$do$
+BEGIN
+   IF NOT EXISTS (
+      SELECT FROM pg_catalog.pg_user
+      WHERE usename = '{db_user}'
+   ) THEN
+      CREATE USER {db_user} WITH PASSWORD '{db_pass}';
+   END IF;
+END
+$do$;
+
+-- Create main database (if not connected via postgres service environment variable)
+CREATE DATABASE IF NOT EXISTS factory_timeseries;
+GRANT ALL PRIVILEGES ON DATABASE factory_timeseries TO {db_user};
+
+-- Connect to the database
+\\c factory_timeseries;
+
+-- Enable TimescaleDB extension
+CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;
+
+-- Create sensor telemetry hypertable
+CREATE TABLE IF NOT EXISTS sensor_telemetry (
+    time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    machine_id VARCHAR(100) NOT NULL,
+    machine_type VARCHAR(50) NOT NULL,
+    sensor_name VARCHAR(100) NOT NULL,
+    sensor_value DOUBLE PRECISION NOT NULL,
+    runtime_state VARCHAR(50)
+);
+
+-- Convert to hypertable (if not already)
+SELECT create_hypertable('sensor_telemetry', 'time', if_not_exists => TRUE);
+
+-- Create indexes for efficient queries
+CREATE INDEX IF NOT EXISTS idx_sensor_machine_time ON sensor_telemetry (machine_id, time DESC);
+CREATE INDEX IF NOT EXISTS idx_sensor_type_time ON sensor_telemetry (machine_type, time DESC);
+CREATE INDEX IF NOT EXISTS idx_sensor_name_time ON sensor_telemetry (sensor_name, time DESC);
+
+-- Grant permissions
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO {db_user};
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO {db_user};
+'''
+        return init_sql
+
+
+    def generate_mqtt_config(self, factory_dir: Path):
+        """Generate MQTT broker configuration"""
+        mqtt_config = '''allow_anonymous true
+
+# Persistence
+persistence true
+persistence_location /mosquitto/data/
+
+# Logging
+log_dest file /mosquitto/log/mosquitto.log
+log_dest stdout
+log_type all
+'''
+
+        mqtt_dir = factory_dir / "mqtt"
+        mqtt_dir.mkdir(exist_ok=True)
+
+        config_file = mqtt_dir / "mosquitto.conf"
+        with open(config_file, 'w') as f:
+            f.write(mqtt_config)
+
+        print("  ✓ Generated MQTT config")
 
 
     def generate_factory(self):
@@ -1121,6 +1214,12 @@ CMD ["python", "/app/publish_config.py"]
         init_sql_file = db_dir / "init-postgres.sql"
         with open(init_sql_file, 'w') as f:
             f.write(init_sql)
+
+        # Generate TimescaleDB initialization script
+        ts_init_sql = self.generate_timescaledb_init_script()
+        ts_init_sql_file = db_dir / "init-timescaledb.sql"
+        with open(ts_init_sql_file, 'w') as f:
+            f.write(ts_init_sql)
 
         # Generate machine classes and Dockerfiles
         print("Generating machine classes and Dockerfiles...")
@@ -1212,6 +1311,7 @@ CMD ["python", "/app/publish_config.py"]
         except Exception as e:
             print(f"  ! Failed to generate test artifacts: {e}")
 
+        # Generate factory-specific automation configurations
         # Generate config-publisher service files so factories auto-publish their config
         print("\nGenerating config-publisher service files...")
         self.generate_config_publisher_files(factory_dir)
@@ -1407,148 +1507,41 @@ Version: {self.config.get('metadata', {}).get('version', '1.0.0')}
         return readme
 
     def _generate_test_cases(self, factory_dir: Path):
-        """Generate a factory-specific `test_cases.json` using machine_ids from the config."""
-        factory_id = self.config.get('factory_id')
-        machines = self.config.get('machines', [])
-        workflows = self.config.get('workflows', [])
+        """
+        Generate a factory-specific `test_cases.json` using TestCaseGenerator.
+        
+        Test cases are factory-aware and context-specific based on:
+        - Actual machines in the factory
+        - Configured workflows and product types
+        - Machine-specific sensors
+        - Extreme condition categories
+        """
+        # Import here to avoid circular dependency
+        sys.path.insert(0, str(Path(__file__).parent.parent / "shared"))
+        # Use template-driven test generator - no hardcoded assumptions
+        from template_driven_test_generator import TemplateDrivenTestGenerator
 
-        # Helper: find first machine_id by type
-        by_type = {}
-        for m in machines:
-            t = m.get('machine_type')
-            if t and t not in by_type:
-                by_type[t] = m.get('machine_id')
+        # Initialize generator with factory config
+        generator = TemplateDrivenTestGenerator(self.config)
 
-        # Determine default product_type from first workflow
-        default_product = None
-        if workflows:
-            default_product = workflows[0].get('product_type') or workflows[0].get('workflow_name')
+        # Generate comprehensive test cases based on machine templates
+        test_cases_by_category = generator.generate_all_test_cases()
+        
+        # Flatten structure for backward compatibility
+        all_test_cases = []
+        for category, tests in test_cases_by_category.items():
+            all_test_cases.extend(tests)
+        
+        test_cases_dict = {"test_cases": all_test_cases}
 
-        # Build a set of test cases similar to simulator defaults but with machine_ids
-        test_cases = []
-
-        # Helper: build product_details from a workflow generically
-        def _build_product_details_from_workflow(workflow: Dict) -> Dict:
-            details = {}
-            for step in workflow.get('steps', []):
-                params = step.get('parameters') or {}
-                for k, v in params.items():
-                    # If parameter is a range, pick the midpoint deterministically
-                    if isinstance(v, dict) and 'min' in v and 'max' in v:
-                        try:
-                            mn = float(v['min']); mx = float(v['max'])
-                            details[k] = (mn + mx) / 2
-                        except Exception:
-                            details[k] = v
-                    # If parameter lists explicit values, pick the first value deterministically
-                    elif isinstance(v, dict) and 'values' in v and isinstance(v['values'], (list, tuple)):
-                        details[k] = v['values'][0] if v['values'] else None
-                    else:
-                        details[k] = v
-
-            # Quantity: prefer workflow.metadata.default_quantity -> config.production_config.default_batch_size -> 1
-            qty = None
-            meta = workflow.get('metadata', {})
-            if isinstance(meta, dict):
-                qty = meta.get('default_quantity')
-            if qty is None:
-                qty = self.config.get('production_config', {}).get('default_batch_size')
-            try:
-                details.setdefault('quantity', int(qty) if qty is not None else 1)
-            except Exception:
-                details.setdefault('quantity', 1)
-
-            # Pull quality_tier or other top-level hints
-            if meta.get('quality_tier'):
-                details.setdefault('quality_tier', meta.get('quality_tier'))
-
-            return details
-
-        # Choose a representative workflow if available
-        representative_wf = workflows[0] if workflows else {}
-        rep_product_type = representative_wf.get('product_type') or representative_wf.get('workflow_name') or default_product or 'product'
-        rep_product_details = _build_product_details_from_workflow(representative_wf) if representative_wf else {"quantity": 1}
-
-        # normal_production
-        test_cases.append({
-            "name": "normal_production",
-            "description": "Runs a normal production scenario.",
-            "steps": [
-                {
-                    "action": "production_request",
-                    "product_name": rep_product_type,
-                    "product_details": rep_product_details
-                }
-            ]
-        })
-
-        # high_temp_cutting - if a cutting machine exists
-        cutting_id = by_type.get('cutting') or by_type.get('cut')
-        if cutting_id:
-            test_cases.append({
-                "name": "high_temp_cutting",
-                "description": "Simulates high temperature during cutting.",
-                "steps": [
-                    {"action": "update_sensor", "machine_id": cutting_id, "sensor_name": "blade_temperature", "value": 40},
-                    {"action": "production_request", "product_name": rep_product_type, "product_details": rep_product_details}
-                ]
-            })
-
-        # low_thread_tension_sewing - if a sewing machine exists
-        sewing_id = by_type.get('sewing')
-        if sewing_id:
-            test_cases.append({
-                "name": "low_thread_tension_sewing",
-                "description": "Simulates low thread tension during sewing.",
-                "steps": [
-                    {"action": "update_sensor", "machine_id": sewing_id, "sensor_name": "thread_tension", "value": 0.1},
-                    {"action": "production_request", "product_name": rep_product_type, "product_details": rep_product_details}
-                ]
-            })
-
-        # high_failure_rate - toggle production success/failure via config
-        test_cases.append({
-            "name": "high_failure_rate",
-            "description": "Simulates a high failure rate during production.",
-            "steps": [
-                {"action": "update_production_success_rate", "success_rate": 0.5},
-                {"action": "production_request", "product_name": rep_product_type, "product_details": rep_product_details}
-            ]
-        })
-
-        # sensor_check - set a few sensors across existing machines
-        sensor_steps = []
-        for m in machines:
-            mid = m.get('machine_id')
-            mtype = m.get('machine_type', '')
-            if not mid:
-                continue
-            if 'cut' in mtype:
-                sensor_steps.append({"action": "update_sensor", "machine_id": mid, "sensor_name": "blade_temperature", "value": 32})
-                sensor_steps.append({"action": "update_sensor", "machine_id": mid, "sensor_name": "blade_pressure", "value": 1.3})
-            elif 'sew' in mtype:
-                sensor_steps.append({"action": "update_sensor", "machine_id": mid, "sensor_name": "needle_temperature", "value": 34})
-                sensor_steps.append({"action": "update_sensor", "machine_id": mid, "sensor_name": "thread_tension", "value": 0.8})
-            elif 'iron' in mtype or 'ironing' in mtype:
-                sensor_steps.append({"action": "update_sensor", "machine_id": mid, "sensor_name": "plate_temperature", "value": 130})
-                sensor_steps.append({"action": "update_sensor", "machine_id": mid, "sensor_name": "steam_pressure", "value": 0.7})
-            elif 'print' in mtype:
-                sensor_steps.append({"action": "update_sensor", "machine_id": mid, "sensor_name": "ink_temperature", "value": 25})
-                sensor_steps.append({"action": "update_sensor", "machine_id": mid, "sensor_name": "nozzle_pressure", "value": 1.0})
-
-        if sensor_steps:
-            sensor_steps.append({"action": "production_request", "product_name": rep_product_type, "product_details": rep_product_details})
-            test_cases.append({
-                "name": "sensor_check",
-                "description": "Checks sensor values and production after changes.",
-                "steps": sensor_steps
-            })
-
-        # Write file
-        out = {"test_cases": test_cases}
+        # Write to file
         file_path = factory_dir / 'test_cases.json'
         with open(file_path, 'w') as f:
-            json.dump(out, f, indent=2)
+            json.dump(test_cases_dict, f, indent=2)
+
+        print(f"  ✓ Generated {len(all_test_cases)} test cases from machine templates")
+    
+    
 
     def _generate_test_runner(self, factory_dir: Path):
         """Generate a small `test_runner.py` script that can execute `test_cases.json` against the factory MQTT broker."""

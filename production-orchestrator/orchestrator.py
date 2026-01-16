@@ -39,6 +39,7 @@ active_orders = {}
 active_orders_lock = Lock()
 machine_registry = {}  # machine_type -> [machine_ids]
 machine_registry_lock = Lock()
+orchestrator_instance = None
 
 
 class ProductionOrder:
@@ -213,7 +214,11 @@ class WorkflowOrchestrator:
             # Simulate success/failure
             import random
             random_value = random.uniform(0, 1)
-            failure_rate = 0.05  # 5% failure rate
+            
+            # Use global production success rate if available, otherwise default
+            from config import PRODUCTION_SUCCESS_RATE
+            success_rate = getattr(self, 'production_success_rate', PRODUCTION_SUCCESS_RATE)
+            failure_rate = 1.0 - success_rate
 
             if random_value < failure_rate:
                 return {
@@ -252,6 +257,7 @@ class WorkflowOrchestrator:
         status_topic = get_production_status_topic(order.order_id)
         self.mqtt_client.publish_json(status_topic, {
             "order_id": order.order_id,
+            "product_name": order.product_name,
             "event": event,
             "status": order.status,
             "workflow": order.workflow.workflow_name,
@@ -299,7 +305,12 @@ def handle_production_request(topic: str, payload: str):
     global workflow_registry
 
     try:
-        request = json.loads(payload)
+        # Parse JSON if it's a string (robust handling)
+        if isinstance(payload, str):
+            request = json.loads(payload)
+        else:
+            request = payload
+
         product_name = request.get("product_name")
         workflow_id = request.get("workflow_id")
         product_type = request.get("product_type")
@@ -329,6 +340,29 @@ def handle_production_request(topic: str, payload: str):
         logger.error(f"Invalid JSON in production request: {e}")
     except Exception as e:
         logger.error(f"Error handling production request: {e}")
+
+
+def handle_config_update(topic: str, payload: str):
+    """Handle site-wide configuration updates (e.g. success rate)"""
+    global orchestrator_instance
+    try:
+        if isinstance(payload, str):
+            config_data = json.loads(payload)
+        else:
+            config_data = payload
+
+        logger.info(f"Received config update: {config_data}")
+        
+        # Look for production configuration
+        production_cfg = config_data.get("production", {})
+        if "success_rate" in production_cfg:
+            new_rate = float(production_cfg["success_rate"])
+            logger.info(f"Updating production success rate to: {new_rate}")
+            if orchestrator_instance:
+                orchestrator_instance.production_success_rate = new_rate
+        
+    except Exception as e:
+        logger.error(f"Error handling config update: {e}")
 
 
 def process_production_queue(orchestrator: WorkflowOrchestrator):
@@ -363,7 +397,7 @@ def signal_handler(sig, frame):
 
 def main():
     """Main service loop"""
-    global running, workflow_registry
+    global running, workflow_registry, orchestrator_instance
 
     # Register signal handlers
     signal.signal(signal.SIGINT, signal_handler)
@@ -392,19 +426,18 @@ def main():
 
     # Initialize orchestrator
     orchestrator = WorkflowOrchestrator(mqtt_client, workflow_registry)
+    orchestrator_instance = orchestrator
 
-    # Register default machines (in real system, machines register themselves)
-    register_machine("cutting", "cutting-01")
-    register_machine("sewing", "sewing-01")
-    register_machine("ironing", "ironing-01")
-    register_machine("printing", "printing-01")
+    # Machines are expected to self-register via MQTT using the registration topic.
 
     # Subscribe to topics
     request_topic = f"factory/{FACTORY_SITE_ID}/production/request"
     registration_topic = f"factory/{FACTORY_SITE_ID}/machine/+/+/register"
+    config_topic = f"factory/{FACTORY_SITE_ID}/config"
 
     mqtt_client.subscribe(request_topic, handle_production_request)
     mqtt_client.subscribe(registration_topic, handle_machine_registration)
+    mqtt_client.subscribe(config_topic, handle_config_update)
 
     # Start MQTT loop
     mqtt_client.loop_start()

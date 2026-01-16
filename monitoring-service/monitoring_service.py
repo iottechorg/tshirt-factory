@@ -116,7 +116,12 @@ def handle_machine_message(topic, payload):
         data_type = parts[4] # "status" or "telemetry"
 
         logger.info(f"✓ Parsing message: factory={factory_id}, machine={machine_id}, type={data_type}")
-        data = json.loads(payload)
+        
+        # Robust JSON parsing
+        if isinstance(payload, str):
+            data = json.loads(payload)
+        else:
+            data = payload
         
         with active_machines_lock:
             # If this is the first time we see this machine, initialize its entry
@@ -164,7 +169,12 @@ def handle_monitoring_command(topic, payload):
     """
     global mqtt_client
     try:
-        command = json.loads(payload)
+        # Robust JSON parsing
+        if isinstance(payload, str):
+            command = json.loads(payload)
+        else:
+            command = payload
+            
         command_type = command.get("command")
         machine_id = command.get("machine_id")
 

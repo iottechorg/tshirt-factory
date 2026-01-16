@@ -1,10 +1,12 @@
-FROM python:3.9-slim
+FROM python:3.11-slim
 
 ARG WEBAPP_PORT=5001
 ENV WEBAPP_PORT=$WEBAPP_PORT
 
 WORKDIR /app
-COPY . /app
+COPY ./factory_ui_simulator /app
+COPY ./shared /app/shared
+COPY ./generated-factories /app/generated-factories
 
 
 

@@ -39,6 +39,14 @@
 - Database schemas (PostgreSQL & TimescaleDB)
 - Extension points
 
+## 🗄️ Archived Documents
+
+Archived documents moved to `docs/archive/`.
+
+- [docs/archive/ARCHITECTURE_REFACTORING_COMPLETE.md](archive/ARCHITECTURE_REFACTORING_COMPLETE.md)
+- [docs/archive/REFACTORING_SUMMARY.md](archive/REFACTORING_SUMMARY.md)
+- [docs/archive/COMPLETION_STATUS.md](archive/COMPLETION_STATUS.md)
+
 ### [EXTENDING.md](EXTENDING.md) - Customization Guide
 **What**: How to create custom factories, machines, and frontends
 **When to read**: Building your own factory or extending the system
@@ -58,7 +66,7 @@
 | **Generate a factory** | [README.md](../README.md#-5-minute-quick-start) |
 | **Run generated factory** | [README.md](../README.md#-5-minute-quick-start) |
 | **Understand architecture** | [ARCHITECTURE.md](ARCHITECTURE.md) |
-| **Create custom factory** | [EXTENDING.md](EXTENDING.md#creating-custom-factories) |
+| **Create custom factory** | [FACTORY_GUIDE.md](FACTORY_GUIDE.md) |
 | **Create custom machine** | [EXTENDING.md](EXTENDING.md#creating-custom-machines) |
 | **Build custom frontend** | [EXTENDING.md](EXTENDING.md#creating-custom-frontends) |
 | **Extend services** | [EXTENDING.md](EXTENDING.md#extending-services) |

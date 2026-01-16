@@ -4,42 +4,41 @@ volumes:
 services:
   factory-simulator:
     build:
-      context: ./factory_ui_simulator/
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./factory_ui_simulator/Dockerfile
       args:
         WEBAPP_PORT: 5001  # Default port for the web app
     ports:
       - 5001:5001
     environment:
-        MQTT_BROKER: tshirt-factory-001-mqtt # it seems jquery cannot resolve mqtt address, replace with host ip or url address
+        MQTT_BROKER: tshirt-factory-001-mqtt
         MQTT_PORT: 1883
         MQTT_WS_PORT: 9001
+        MQTT_PUBLIC_HOST: localhost # Used by browser to connect to MQTT via WebSockets
         WEBAPP_PORT: 5001 # The flask app port number, if this changes, change also the port tuple above
         FACTORY_SITE_ID: tshirt-factory-001
         MACHINE_DATA_PUBLISH_INTERVAL: 10 # in seconds
         PRODUCTION_LOOP_INTERVAL: 5 # in seconds
         MACHINE_DATA_REST_REQUEST_INTERVAL: 10 # in seconds
+    volumes:
+      - ./generated-factories:/generated-factories:ro
     networks:
-      - aws-factory-network
       - tshirt-factory-001-network
 
   frontend:
     build:
       context: ./customer-order-ui/
       dockerfile: Dockerfile
-      args:
-        API_URL: factory-simulator:5001  # Default API URL for the frontend
     ports:
       - "8080:80" 
     environment:
-        # Pass the env variable directly into the container
-       - API_URL=factory-simulator:5001
+        # NOTE: This is used by the browser. It MUST be reachable from the host.
+        # Use http://localhost:5001 if developing on local machine.
+       - API_URL=http://localhost:5001
     restart: always
     networks:
-      - aws-factory-network
+      - tshirt-factory-001-network
 networks:
-  aws-factory-network:
-    driver: bridge
   tshirt-factory-001-network:
     external:
       name: tshirt-factory-001_tshirt-factory-001-network

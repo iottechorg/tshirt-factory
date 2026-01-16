@@ -10,8 +10,103 @@ Now acts as a MQTT-based state manager that:
 
 import logging
 import threading
+import time
 from factory_state_manager import FactoryStateManager
 from mqtt_publisher import MQTTPublisher
+import sys
+from pathlib import Path
+import json
+import os
+
+logger = logging.getLogger(__name__)
+
+# Factory config will be loaded lazily
+_factory_config = None
+
+def _get_factory_config():
+    """Get factory configuration for automation (lazy loading)."""
+    global _factory_config
+    if _factory_config is None:
+        try:
+            # Get factory site ID from environment
+            factory_site_id = os.getenv("FACTORY_SITE_ID", "tshirt-factory-001")
+            
+            # Try to load from generated factories directory
+            config_path = Path(__file__).parent.parent / "generated-factories" / factory_site_id / "factory-config.json"
+            if config_path.exists():
+                with open(config_path, 'r') as f:
+                    _factory_config = json.load(f)
+                    logger.info(f"Loaded factory config from {config_path}")
+                    return _factory_config
+            
+            # Fallback: try main factory configs
+            config_path = Path(__file__).parent.parent / "factory-configs" / f"{factory_site_id}.json"
+            if config_path.exists():
+                with open(config_path, 'r') as f:
+                    _factory_config = json.load(f)
+                    logger.info(f"Loaded factory config from {config_path}")
+                    return _factory_config
+                    
+            logger.warning("Could not find factory config file")
+            _factory_config = {}
+        except Exception as e:
+            logger.error(f"Error loading factory config: {e}")
+            _factory_config = {}
+    
+    return _factory_config
+
+# Import config after lazy loading is set up
+# Define config variables directly to avoid import issues
+MQTT_BROKER = os.getenv("MQTT_BROKER", "tshirt-factory-001-mqtt")
+MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
+FACTORY_SITE_ID = os.getenv("FACTORY_SITE_ID", "tshirt-factory-001")
+MQTT_TOPIC_PRODUCTION_REQUEST = f"factory/{FACTORY_SITE_ID}/production/request"
+MQTT_TOPIC_SENSOR_UPDATE = f"factory/{FACTORY_SITE_ID}/sensor/update"
+MQTT_TOPIC_TEST_REQUEST = f"factory/{FACTORY_SITE_ID}/test/request"
+MQTT_TOPIC_CONFIG = f"factory/{FACTORY_SITE_ID}/config"
+
+try:
+    from production_automation import ProductionAutomation, TestAutomation
+    _PROD_AUTOMATION_AVAILABLE = True
+except Exception as _e:
+    print(f"WARNING: production_automation not importable: {_e}")
+    _PROD_AUTOMATION_AVAILABLE = False
+
+    class ProductionAutomation:
+        """Fallback ProductionAutomation stub when real module is unavailable."""
+        def __init__(self, callback=None, factory_config=None):
+            class _State:
+                value = "stopped"
+            self.state = _State()
+
+        def start(self, interval_seconds: int = 5):
+            logger.warning("ProductionAutomation.start() called but production_automation module is missing")
+            return {"status": "not_available", "message": "production_automation_not_available"}
+
+        def stop(self):
+            logger.warning("ProductionAutomation.stop() called but production_automation module is missing")
+            return {"status": "not_available", "message": "production_automation_not_available"}
+
+        def get_status(self):
+            return {"state": "not_available"}
+
+    class TestAutomation:
+        """Fallback TestAutomation stub when real module is unavailable."""
+        def __init__(self, callback=None):
+            class _State:
+                value = "stopped"
+            self.state = _State()
+
+        def start(self, *args, **kwargs):
+            logger.warning("TestAutomation.start() called but production_automation module is missing")
+            return {"status": "not_available"}
+
+        def stop(self, *args, **kwargs):
+            logger.warning("TestAutomation.stop() called but production_automation module is missing")
+            return {"status": "not_available"}
+
+        def get_status(self):
+            return {"state": "not_available"}
 from config import (
     MQTT_BROKER, MQTT_PORT, FACTORY_SITE_ID,
     MQTT_TOPIC_PRODUCTION_REQUEST, MQTT_TOPIC_SENSOR_UPDATE, MQTT_TOPIC_TEST_REQUEST,
@@ -30,7 +125,7 @@ factory_state_manager = FactoryStateManager(
 
 # MQTT publisher for sending commands to factory
 command_publisher = MQTTPublisher(
-    client_id=f"factory_ui_commands_{FACTORY_SITE_ID}",
+    client_id=f"factory_ui_commands_{FACTORY_SITE_ID}_{int(__import__('time').time())}",
     enable_logs=True
 )
 
@@ -73,8 +168,19 @@ class CommandManager:
     def update_sensor(self, machine_id: str, sensor_name: str, value: float):
         """Send sensor update to factory."""
         try:
-            # Prefer per-machine command topic for machine-level updates
-            topic = f"factory/{FACTORY_SITE_ID}/machines/{machine_id}/command"
+            # Prefer machine-type-aware command topic when available. If caller provides
+            # a machine_type via kwargs, use the canonical topic; otherwise fall back
+            # to the legacy plural 'machines' topic for backwards compatibility.
+            machine_type = None
+            # allow callers to pass machine_type via attribute if set
+            if hasattr(self, 'last_machine_type') and self.last_machine_type:
+                machine_type = self.last_machine_type
+
+            if machine_type:
+                topic = f"factory/{FACTORY_SITE_ID}/machine/{machine_type}/{machine_id}/command"
+            else:
+                topic = f"factory/{FACTORY_SITE_ID}/machines/{machine_id}/command"
+
             cmd = {"command": "update_sensor", "sensor_name": sensor_name, "value": float(value)}
             self.publisher.publish(topic, json.dumps(cmd))
             logger.info(f"Published sensor update: {machine_id}/{sensor_name}={value} to {topic}")
@@ -123,9 +229,26 @@ class MachineManager:
             logger.warning(f"Machine {machine_id} not found")
             return None
         
-        # For now, just update local cache. In the future, publish to factory.
-        # failure_rate would be handled by factory's production config update
-        logger.info(f"Machine update requested for {machine_id}: {data}")
+        # Publish to machine-specific config topic
+        if 'failure_rate' in data:
+            try:
+                # 1. Publish to config topic
+                topic = f"factory/{FACTORY_SITE_ID}/machines/{machine_id}/config"
+                payload = json.dumps({"failure_rate": float(data['failure_rate'])})
+                self.command_mgr.publisher.publish(topic, payload)
+                
+                # 2. ALSO publish to command topic for backward compatibility with machine services
+                cmd_topic = f"factory/{FACTORY_SITE_ID}/machines/{machine_id}/command"
+                cmd_payload = json.dumps({
+                    "command": "set_failure_rate",
+                    "rate": float(data['failure_rate'])
+                })
+                self.command_mgr.publisher.publish(cmd_topic, cmd_payload)
+                
+                logger.info(f"Published machine config update for {machine_id}: {payload} to {topic} and {cmd_topic}")
+            except Exception as e:
+                logger.error(f"Failed to publish machine config for {machine_id}: {e}")
+        
         return machine
     
     def update_machine_sensor(self, machine_id: str, sensor_name: str, value: float):
@@ -135,8 +258,24 @@ class MachineManager:
         if not machine:
             return None
         
-        # Send command to factory
+        # Send command to factory. If we have a machine_type in the cached state,
+        # set it on the command manager so it will publish to the canonical
+        # machine-specific topic (factory/{site}/machine/{type}/{id}/command).
+        try:
+            machine_type = machine.get('machine_type')
+            if machine_type:
+                # Store temporarily on the command manager instance
+                setattr(self.command_mgr, 'last_machine_type', machine_type)
+        except Exception:
+            pass
+
         self.command_mgr.update_sensor(machine_id, sensor_name, value)
+        # Clear the temporary attribute to avoid leaking state
+        try:
+            if hasattr(self.command_mgr, 'last_machine_type'):
+                delattr(self.command_mgr, 'last_machine_type')
+        except Exception:
+            pass
         return machine
 
 
@@ -146,6 +285,7 @@ class ProductionManager:
     def __init__(self, command_mgr: CommandManager, state_mgr: FactoryStateManager):
         self.command_mgr = command_mgr
         self.state_mgr = state_mgr
+        self._production_history = []
     
     def request_production(self, product_name: str, product_details: dict = None):
         """Send production request to factory."""
@@ -154,6 +294,23 @@ class ProductionManager:
     def get_production_status(self):
         """Get current production status from factory state."""
         return self.state_mgr.get_production_status()
+
+    def update_production_config(self, config_data: dict):
+        """Update global production configuration via MQTT."""
+        try:
+            payload = json.dumps({"production": config_data})
+            self.command_mgr.publisher.publish(MQTT_TOPIC_CONFIG, payload)
+            logger.info(f"Published global production config: {payload}")
+            return True
+        except Exception as e:
+            logger.error(f"Error publishing production config: {e}")
+            return False
+    
+    def clear_production_history(self):
+        """Clear production history."""
+        self._production_history = []
+        logger.info("Production history cleared")
+        return True
 
 
 class TestManager:
@@ -174,20 +331,29 @@ class TestManager:
             logger.error(f"Failed to start test case thread: {e}")
 
     def _execute_test_case(self, test_case: dict):
-        """Sequentially execute steps in a test case.
-
-        Supported actions:
-        - update_sensor: {machine_id, sensor_name, value}
-        - production_request: {product_name, product_details}
-        - update_failure_rate / update_production_success_rate: publish to config
-        - run_custom_command: {machine_id, command, params}
-        - wait/delay: {seconds}
-        """
+        """Sequentially execute steps in a test case."""
+        import time
+        name = test_case.get('name', '<unnamed>')
         try:
-            name = test_case.get('name', '<unnamed>')
             logger.info(f"Executing test case: {name}")
             steps = test_case.get('steps', [])
-            for step in steps:
+            total_steps = len(steps)
+            
+            # Setup notification topic
+            status_topic = f"factory/{FACTORY_SITE_ID}/test/status"
+            
+            for i, step in enumerate(steps):
+                # Publish progress
+                progress = {
+                    "test_name": name,
+                    "step_index": i,
+                    "total_steps": total_steps,
+                    "action": step.get('action'),
+                    "status": "running",
+                    "timestamp": time.time()
+                }
+                self.command_mgr.publisher.publish(status_topic, json.dumps(progress))
+
                 action = (step.get('action') or '').lower()
                 if not action:
                     continue
@@ -235,16 +401,49 @@ class TestManager:
                 elif action in ('wait', 'delay', 'sleep'):
                     seconds = float(step.get('seconds', 0) or step.get('delay', 0))
                     if seconds > 0:
-                        import time
                         logger.debug(f"Test '{name}' waiting for {seconds} seconds")
                         time.sleep(seconds)
 
                 else:
                     logger.warning(f"Unknown test action: {action}")
-
+            
+            # Publish completion
+            completion = {
+                "test_name": name,
+                "status": "completed",
+                "timestamp": time.time()
+            }
+            self.command_mgr.publisher.publish(status_topic, json.dumps(completion))
             logger.info(f"Finished test case: {name}")
         except Exception as e:
-            logger.exception(f"Error executing test case '{test_case.get('name', '<unnamed>')}': {e}")
+            logger.exception(f"Error executing test case '{name}': {e}")
+            # Notify error
+            try:
+                error_status = {
+                    "test_name": name,
+                    "status": "error",
+                    "error": str(e),
+                    "timestamp": time.time()
+                }
+                self.command_mgr.publisher.publish(f"factory/{FACTORY_SITE_ID}/test/status", json.dumps(error_status))
+            except:
+                pass
+
+
+# Callbacks for automation
+def _production_automation_callback(product_name, product_details):
+    """Callback for production automation."""
+    # For automation, we don't want to actually send production requests to the factory
+    # as they would show up on the UI. Instead, just log the automated request.
+    logger.info(f"🔄 Automated production request: {product_name} with details: {product_details}")
+    # Note: We intentionally do NOT call command_manager.request_production() here
+    # to prevent automated requests from appearing on the production page
+
+def _test_automation_callback(test_case):
+    """Callback for test automation."""
+    # Get test_manager reference (will be set after managers are created)
+    if hasattr(_test_automation_callback, '_test_manager'):
+        _test_automation_callback._test_manager.run_test_case(test_case)
 
 
 # Global manager instances
@@ -252,6 +451,14 @@ command_manager = CommandManager(command_publisher)
 machine_manager = MachineManager(factory_state_manager, command_manager)
 production_manager = ProductionManager(command_manager, factory_state_manager)
 test_manager = TestManager(command_manager)
+
+# Automation managers
+production_automation = ProductionAutomation(_production_automation_callback, _get_factory_config())
+test_automation = TestAutomation(_test_automation_callback)
+
+# Set references for callbacks
+_production_automation_callback._command_manager = command_manager
+_test_automation_callback._test_manager = test_manager
 
 
 def initialize_managers():

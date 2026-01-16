@@ -1,163 +1,95 @@
 # System Architecture
 
-**Complete technical reference for the Universal Factory Simulation Platform**
+***
+Consolidated Architecture (Canonical)
+===================================
 
----
+This file is the canonical architecture reference. It consolidates the previous UI-focused and template-driven architecture notes into a single source of truth. Original, unmerged files have been archived under `docs/archive/`.
 
-## Table of Contents
-1. [Three-Layer Design](#three-layer-design)
-2. [Core Components](#core-components)
-3. [Data Flow](#data-flow)
-4. [Service Communication](#service-communication)
-5. [Database Schema](#database-schema)
-6. [MQTT Protocol](#mqtt-protocol)
-7. [Extension Points](#extension-points)
+Overview
+--------
 
----
+The platform has three layers:
 
-## Three-Layer Design
+- Configuration layer: `factory-configs/`, `machine-templates/`, `workflows/`.
+- Generation layer: `tools/factory_generator.py` (canonical generator: `shared/template_driven_test_generator.py`).
+- Execution layer: generated Docker Compose stacks per factory instance.
 
-### Layer 1: Configuration (JSON)
+Core Components
+---------------
 
-The entire system is driven by configuration, not code.
+- MQTT Broker (Mosquitto): message bus (1883, WS 9001).
+- Orchestrator: subscribes to production requests and issues machine commands via MQTT.
+- Machine services: per-machine containers publishing telemetry and accepting commands.
+- Monitoring service: subscribes to telemetry and writes to PostgreSQL/TimescaleDB.
+- Factory UI Simulator: stateless REST → MQTT bridge used by browser UIs.
 
-**Machine Templates** (`machine-templates/*.json`)
-- Reusable definitions: sensors, operations, failure modes
-- 7 pre-built: cutting, sewing, packaging, quality-check, welding, pcb-assembly, tablet-press
-- Validated against `schemas/machine-template-schema.json`
+Standard MQTT Topics
+---------------------
 
-Example machine template:
-```json
-{
-  "name": "Cutting Machine",
-  "machine_id_template": "cutting-{number}",
-  "type": "cutting",
-  "sensors": {
-    "blade_temperature": { "min": 20, "max": 50, "unit": "°C" },
-    "blade_pressure": { "min": 0.5, "max": 2.5, "unit": "bar" }
-  },
-  "operations": [
-    {
-      "name": "cut_fabric",
-      "duration_seconds": 20,
-      "required_sensors": ["blade_temperature", "blade_pressure"]
-    }
-  ]
-}
+```
+factory/{factory-id}/machines/{machine-id}/telemetry
+factory/{factory-id}/machines/{machine-id}/status
+factory/{factory-id}/machines/{machine-id}/command
+factory/{factory-id}/production/request
+factory/{factory-id}/production/status
+factory/{factory-id}/sensor/update
+factory/{factory-id}/test/request
 ```
 
-**Factory Configurations** (`factory-configs/*.json`)
-- Complete factory definitions
-- 5 pre-built: tshirt, automotive, electronics, pharma, food
-- Validated against `schemas/factory-config-schema.json`
+Generator & Test Case Notes
+---------------------------
 
-Example factory config:
-```json
-{
-  "factory_id": "tshirt-factory-001",
-  "factory_name": "Smart T-Shirt Manufacturing Plant",
-  "machines": [
-    { "id": "cutting-01", "template": "cutting-machine.json", "count": 1 },
-    { "id": "sewing-01", "template": "sewing-machine.json", "count": 1 },
-    { "id": "qualitycheck-01", "template": "quality-check-machine.json", "count": 1 },
-    { "id": "packaging-01", "template": "packaging-machine.json", "count": 1 }
-  ],
-  "workflows": [
-    { "file": "tshirt-standard.json" },
-    { "file": "premium-tshirt.json" }
-  ],
-  "production_config": {
-    "default_success_rate": 0.99,
-    "default_failure_rate": 0.01
-  }
-}
-```
+- Canonical generator: `shared/template_driven_test_generator.py`. It extracts sensor ranges and metadata from `machine-templates/*.json` and generates `test_cases.json` containing sensor-extreme and production scenarios.
+- Legacy generators (e.g., `shared/test_case_generator.py`) are deprecated and archived. The canonical implementation is `shared/template_driven_test_generator.py`.
 
-### Layer 2: Generation (Python Tool)
+UI Simulator (MQTT bridge)
+-------------------------
 
-`tools/factory_generator.py` converts JSON into running code.
+The Factory UI Simulator is a stateless REST → MQTT bridge. It translates browser actions into MQTT topics and reflects factory state received over MQTT. The simulator does not implement machine simulation; generated factories provide simulation logic and publish status/telemetry to MQTT.
 
-**Process**:
-```
-Load JSON Config
-    ↓
-Validate Against Schemas
-    ↓
-Generate Machine Classes (Python)
-    ↓
-Generate Orchestrator Service
-    ↓
-Generate Docker Compose Configuration
-    ↓
-Generate Documentation
-    ↓
-Output: generated-factories/{factory-id}/
-```
+Key behaviors:
+- Forwards production requests, sensor updates and test requests to `factory/{factory_id}/...` topics.
+- Subscribes to factory topics to maintain UI state and provide REST responses.
 
-**Input & Output**:
-- **Input**: `factory-configs/tshirt-factory.json`
-- **Output**: `generated-factories/tshirt-factory-001/`
-  - `docker-compose.yml` (9 services)
-  - `services/machines/{type}/machine_service.py` (1 per machine)
-  - `services/orchestrator/orchestrator.py`
-  - `services/monitoring/monitoring_service.py`
-  - `database/init-*.sql` (schema initialization)
-  - `mqtt/mosquitto.conf`
-  - `README.md` (generated documentation)
+Template-driven Test Generation
+------------------------------
 
-### Layer 3: Execution (Docker Services)
+Test cases and automation are generated from `machine-templates/*.json` and `factory-configs/*.json`. The canonical generator (`shared/template_driven_test_generator.py`) extracts sensor ranges and produces `test_cases.json` containing sensor-extreme and production scenarios. This makes tests factory-agnostic and automatically covers newly added sensors or machine templates.
 
-Generated factory runs as Docker services.
+Factory UI Simulator
+--------------------
 
-**Service Stack**:
-```
-9 Services Total:
-├─ MQTT Broker        (Mosquitto, port 31883)
-├─ PostgreSQL         (Port 5432)
-├─ TimescaleDB        (Port 5433)
-├─ Orchestrator       (Workflow coordinator)
-├─ Monitoring Service (MQTT listener & data persistence)
-├─ Machine 1          (Cutting, type-specific container)
-├─ Machine 2          (Sewing, type-specific container)
-├─ Machine 3          (Quality Check)
-└─ Machine 4          (Packaging)
-```
+The simulator exposes REST endpoints that translate to MQTT topics and maintains a small in-memory state derived from MQTT subscriptions. It does not simulate machines locally; generated factories provide simulation logic.
 
----
+Common REST endpoints:
 
-## Core Components
+- `GET /machines`
+- `PUT /machines/<id>/sensor/<name>`
+- `POST /production`
+- `POST /test/run/<name>`
 
-### 1. MQTT Broker (Mosquitto)
+Networking Considerations
+-------------------------
 
-**Role**: Central message bus for all inter-service communication
+- Generated factories are Docker Compose stacks. For cross-stack access the supported approaches are:
+  - Publish ports to host and use `host.docker.internal` (macOS) from UI containers.
+  - Attach UI/service containers to one or more factory networks (service joins multiple networks).
+  - Run an `edge-proxy` container that joins multiple networks and proxies HTTP/WS/MQTT.
 
-**Configuration**: `mqtt/mosquitto.conf`
-```
-listener 1883 0.0.0.0              # Native MQTT
-listener 9001 0.0.0.0              # WebSocket for browsers
-protocol mqtt
-allow_anonymous true
-```
+Migration & Next Steps
+---------------------
 
-**Features**:
-- Publish/subscribe messaging
-- Wildcard subscriptions (`+`, `#`)
-- QoS 0 (at most once) for telemetry
-- QoS 1 (at least once) for commands
+- One-off scripts will be moved into `tests/` (pytest) or archived.
+- Placeholders were added for missing guides under `docs/` so links are resolvable; full guide content should be authored and linked here.
 
-### 2. Machine Services
+See also
+--------
 
-Each machine is an independent container running `machine_service.py`
+- `docs/HOW_TO_USE.md`
+- `docs/EXTENDING.md`
+- `docs/MEDIUM_ARTICLE.md`
 
-**Responsibilities**:
-- Update sensor values (simulated)
-- Publish status and telemetry to MQTT
-- Execute operations from orchestrator
-- Track operational state (idle, busy, error)
-
-**Lifecycle**:
-```
-Start
   ↓
 Initialize sensors (random within ranges)
   ↓
@@ -742,6 +674,310 @@ client.loop_start()
 ### Modifying Workflows
 
 Edit workflow template (`workflows/*.json`) then regenerate factory.
+
+---
+
+## Test Case Generation (Factory-Specific & Template-Based)
+
+### Overview
+
+The `TestCaseGenerator` (`shared/template_driven_test_generator.py`) automatically generates factory-specific test cases based on:
+- Actual machines in the factory (from config)
+- Machine sensor specifications (from templates)
+- Factory workflows and product types
+- Extreme condition categories
+
+**Key Feature**: Sensor extremes are extracted from machine templates, not hardcoded. This makes test generation completely factory-agnostic and extensible.
+
+### How Sensor Ranges Work
+
+**Before** (Hardcoded, Factory-Specific):
+```python
+# ❌ PROBLEMS:
+# - Generic ranges don't match real machines
+# - Different factories have same ranges (not factory-specific)
+# - Adding new machine types requires code changes
+sensor_extremes = {
+    "blade_temperature": (0, 60),      # Too generic
+    "thread_tension": (0, 2.0),        # Wrong for sewing machine
+}
+```
+
+**After** (Template-Based, Data-Driven):
+```python
+# ✓ BENEFITS:
+# - Ranges from cutting-machine.json: blade_temperature (20.0-45.0)
+# - Ranges from sewing-machine.json: thread_tension (0.4-1.2)
+# - New machine types just need JSON file, no code changes
+
+# Cutting machine gets real specs
+extremes = tcg.get_sensor_extremes("cutting", "blade_temperature")
+# Returns: (20.0, 45.0)  ✓ From cutting-machine.json template
+
+# Sewing machine gets real specs
+extremes = tcg.get_sensor_extremes("sewing", "thread_tension")
+# Returns: (0.4, 1.2)  ✓ From sewing-machine.json template
+```
+
+### Data Flow
+
+```
+Factory Config
+    ↓
+TestCaseGenerator.__init__()
+    ├─ Load all machine templates from machine-templates/*.json
+    ├─ Build machines_by_type mapping
+    └─ Extract product types from workflows
+    ↓
+get_machine_sensors(machine_type)
+    ├─ Check template for sensor definitions (PRIMARY)
+    ├─ Fall back to factory config if needed
+    └─ Return list of sensor names
+    ↓
+get_sensor_extremes(machine_type, sensor_name)
+    ├─ Priority 1: Check machine template (EXACT SOURCE)
+    ├─ Priority 2: Check factory config
+    ├─ Priority 3: Check sensor_defaults dictionary
+    └─ Priority 4: Return generic (0.0, 100.0)
+    ↓
+Generate Test Cases
+    └─ Use extracted sensor ranges for realistic test data
+```
+
+### Machine Templates & Sensor Specifications
+
+Each machine template defines sensors with precise ranges:
+
+**cutting-machine.json**:
+```json
+{
+  "machine_type": "cutting",
+  "sensors": [
+    {
+      "name": "blade_temperature",
+      "type": "float",
+      "unit": "celsius",
+      "range": {"min": 20.0, "max": 45.0}
+    },
+    {
+      "name": "blade_pressure",
+      "type": "float",
+      "unit": "bar",
+      "range": {"min": 0.5, "max": 2.0}
+    }
+  ]
+}
+```
+
+**sewing-machine.json**:
+```json
+{
+  "machine_type": "sewing",
+  "sensors": [
+    {
+      "name": "needle_temperature",
+      "type": "float",
+      "unit": "celsius",
+      "range": {"min": 25.0, "max": 45.0}
+    },
+    {
+      "name": "thread_tension",
+      "type": "float",
+      "unit": "newton",
+      "range": {"min": 0.4, "max": 1.2}
+    }
+  ]
+}
+```
+
+### Available Machine Templates
+
+| Template | Machine Type | Sensors | File |
+|---|---|---|---|
+| Cutting | cutting | 4 | cutting-machine.json |
+| Sewing | sewing | 4 | sewing-machine.json |
+| Packaging | packaging | 5 | packaging-machine.json |
+| Welding | welding | 7 | welding-machine.json |
+| Tablet Press | tabletpress | 6 | tablet-press.json |
+| Quality Check | qualitycheck | 5 | quality-check-machine.json |
+| PCB Assembly | pcbassembly | 5 | pcb-assembly.json |
+
+### Integration with Factory Generation
+
+When `tools/factory_generator.py` generates a factory:
+
+1. Loads factory configuration (`factory-configs/tshirt-factory.json`)
+2. Creates `TestCaseGenerator` with config
+3. Generator automatically loads all 7 machine templates
+4. Test cases generated with template-derived sensor ranges
+5. Test cases saved to generated factory's test directory
+
+```python
+# In factory_generator.py
+from shared.test_case_generator import TestCaseGenerator
+
+# Load factory config
+with open(factory_config_path) as f:
+    config = json.load(f)
+
+# Create generator (automatically loads templates)
+tcg = TestCaseGenerator(config)
+
+# Generate test cases using template-based sensor ranges
+test_cases = tcg.generate_batch_test_cases(count=50)
+
+# Save to factory
+save_test_cases(test_cases, output_dir)
+```
+
+### Example: T-Shirt Factory Test Cases
+
+For T-shirt factory with cutting and sewing machines:
+
+```python
+tcg = TestCaseGenerator(tshirt_factory_config)
+
+# Cutting machine test cases use cutting-machine.json specs
+test_cases = tcg.generate_for_machine_type("cutting")
+# → blade_temperature tests use (20.0-45.0) range
+# → blade_pressure tests use (0.5-2.0) range
+
+# Sewing machine test cases use sewing-machine.json specs
+test_cases = tcg.generate_for_machine_type("sewing")
+# → needle_temperature tests use (25.0-45.0) range
+# → thread_tension tests use (0.4-1.2) range
+```
+
+### Test Case Structure
+
+Each generated test case includes:
+
+```json
+{
+  "name": "auto_high_temperature_6048",
+  "category": "auto_generated",
+  "description": "Test cutting machine behavior at high temperature",
+  "preconditions": ["Machine initialized", "Sensors operational"],
+  "steps": [
+    {
+      "action": "update_sensor",
+      "machine_type": "cutting",
+      "sensor": "blade_temperature",
+      "value": 43.5,
+      "expected_behavior": "Machine continues normal operation"
+    }
+  ],
+  "expected_outcome": "Machine operates correctly at high temperature",
+  "validation": ["No alarms triggered", "Performance nominal"]
+}
+```
+
+### Extreme Condition Categories
+
+Test cases cover multiple condition types:
+
+| Category | Weight | Purpose |
+|---|---|---|
+| normal | 20% | Baseline operation |
+| high_temperature | 15% | High temperature extremes |
+| low_temperature | 15% | Low temperature extremes |
+| high_pressure | 15% | High pressure/tension |
+| low_pressure | 15% | Low pressure/tension |
+| sensor_failure | 10% | Sensor reading extremes |
+| mixed_extreme | 10% | Multiple conditions simultaneously |
+
+### Adding New Machine Types
+
+To add a new machine type with automatic test case support:
+
+1. **Create machine template** (`machine-templates/my-machine.json`):
+```json
+{
+  "machine_type": "my_machine",
+  "name": "My Custom Machine",
+  "sensors": [
+    {
+      "name": "critical_sensor",
+      "type": "float",
+      "unit": "units",
+      "range": {"min": 10.0, "max": 50.0}
+    }
+  ]
+}
+```
+
+2. **Update factory config** to include the machine:
+```json
+{
+  "machines": [
+    {"template": "my-machine.json", "count": 1}
+  ]
+}
+```
+
+3. **Regenerate factory** - TestCaseGenerator automatically:
+   - Discovers new machine template
+   - Extracts sensor specifications
+   - Generates test cases using correct sensor ranges
+
+No code changes needed! The system is entirely data-driven.
+
+### Fallback Behavior
+
+If sensor not found in template:
+
+1. Check factory config for embedded sensor definitions
+2. Check sensor_defaults dictionary (generic values)
+3. Return (0.0, 100.0) with warning log
+
+This ensures backward compatibility while encouraging template-based definitions.
+
+### Testing the System
+
+```bash
+# Test template loading and sensor extraction
+cd /workspace/tshirt-factory
+
+python3 << 'EOF'
+from shared.test_case_generator import TestCaseGenerator
+import json
+
+# Load factory
+with open('factory-configs/tshirt-factory.json') as f:
+    config = json.load(f)
+
+tcg = TestCaseGenerator(config)
+
+# Verify templates loaded
+print(f"Templates loaded: {len(tcg.machine_templates)}")
+for machine_type in tcg.machine_templates:
+    print(f"  - {machine_type}")
+
+# Test sensor extraction
+extremes = tcg.get_sensor_extremes("cutting", "blade_temperature")
+print(f"\nCutting blade_temperature range: {extremes}")
+EOF
+```
+
+**Output**:
+```
+Templates loaded: 7
+  - cutting
+  - sewing
+  - packaging
+  - qualitycheck
+  - tabletpress
+  - welding
+  - pcbassembly
+
+Cutting blade_temperature range: (20.0, 45.0)
+```
+
+### See Also
+
+- [Template-Based Sensor Extraction Guide](./TEMPLATE_BASED_SENSOR_EXTRACTION.md) - Detailed explanation
+- [TestCaseGenerator Source](../shared/template_driven_test_generator.py) - Implementation details
+- [Machine Template Schema](../schemas/machine-template-schema.json) - Template structure
 
 ---
 

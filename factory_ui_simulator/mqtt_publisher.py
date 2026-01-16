@@ -36,6 +36,12 @@ class MQTTPublisher:
         self.is_connected = False
         if rc != 0:
             logging.info(f"Disconnected unexpectedly with code: {rc}")
+            # Attempt to reconnect
+            logging.info("Attempting to reconnect...")
+            try:
+                self.client.reconnect()
+            except Exception as e:
+                logging.error(f"Reconnection failed: {e}")
 
     def publish(self, topic, message):
         if self.is_connected:

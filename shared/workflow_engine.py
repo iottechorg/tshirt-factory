@@ -4,6 +4,8 @@ Allows defining different production processes with different machine sequences
 """
 import json
 import logging
+import os
+from pathlib import Path
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass, asdict, field
 
@@ -74,208 +76,37 @@ class WorkflowDefinition:
 class WorkflowRegistry:
     """Registry for managing workflow definitions"""
 
-    def __init__(self, load_defaults: bool = True):
+    def __init__(self, workflows_dir: Optional[str] = None, load_defaults: bool = True):
         self.workflows: Dict[str, WorkflowDefinition] = {}
-        if load_defaults:
-            self._load_default_workflows()
+        
+        # Load from directory if provided
+        if workflows_dir and os.path.isdir(workflows_dir):
+            self.load_from_directory(workflows_dir)
+        elif load_defaults:
+            logger.warning("No workflows directory provided and load_defaults=True. Registry will be empty unless workflows are loaded via load_from_file().")
 
-    def _load_default_workflows(self):
-        """Load default workflow definitions"""
-        # Standard T-Shirt workflow
-        self.register(self._create_tshirt_workflow())
+    def load_from_directory(self, workflows_dir: str):
+        """Load all workflow JSON files from a directory"""
+        workflows_path = Path(workflows_dir)
+        if not workflows_path.is_dir():
+            logger.warning(f"Workflows directory not found: {workflows_dir}")
+            return
+        
+        json_files = sorted(workflows_path.glob('*.json'))
+        if not json_files:
+            logger.warning(f"No workflow JSON files found in {workflows_dir}")
+            return
+        
+        for json_file in json_files:
+            try:
+                self.load_from_file(str(json_file))
+            except Exception as e:
+                logger.error(f"Failed to load workflow from {json_file}: {e}")
+        
+        if self.workflows:
+            logger.info(f"Loaded {len(self.workflows)} workflows from {workflows_dir}")
 
-        # Hoodie workflow (includes additional steps)
-        self.register(self._create_hoodie_workflow())
 
-        # Simple workflow (cutting and printing only)
-        self.register(self._create_simple_workflow())
-
-        # Parallel workflow example
-        self.register(self._create_parallel_workflow())
-
-    def _create_tshirt_workflow(self) -> WorkflowDefinition:
-        """Standard T-shirt production workflow"""
-        return WorkflowDefinition(
-            workflow_id="workflow-tshirt-standard",
-            workflow_name="Standard T-Shirt Production",
-            description="Complete t-shirt production: cutting, sewing, ironing, printing",
-            product_type="tshirt",
-            steps=[
-                WorkflowStep(
-                    step_id="step-1",
-                    machine_type="cutting",
-                    operation="cut_fabric",
-                    required_inputs=["material", "cut_size"],
-                    outputs=["cut_fabric"]
-                ),
-                WorkflowStep(
-                    step_id="step-2",
-                    machine_type="sewing",
-                    operation="sew_pieces",
-                    required_inputs=["cut_fabric", "stitch_type", "thread_color"],
-                    outputs=["sewn_garment"]
-                ),
-                WorkflowStep(
-                    step_id="step-3",
-                    machine_type="ironing",
-                    operation="iron_garment",
-                    required_inputs=["sewn_garment", "iron_temperature_setpoint", "steam_level"],
-                    outputs=["ironed_garment"]
-                ),
-                WorkflowStep(
-                    step_id="step-4",
-                    machine_type="printing",
-                    operation="print_design",
-                    required_inputs=["ironed_garment", "ink_type"],
-                    optional_inputs=["design_name"],
-                    outputs=["finished_product"]
-                )
-            ],
-            metadata={"estimated_time_minutes": 20, "complexity": "standard"}
-        )
-
-    def _create_hoodie_workflow(self) -> WorkflowDefinition:
-        """Hoodie production workflow with additional steps"""
-        return WorkflowDefinition(
-            workflow_id="workflow-hoodie-standard",
-            workflow_name="Hoodie Production",
-            description="Hoodie production with hood attachment",
-            product_type="hoodie",
-            steps=[
-                WorkflowStep(
-                    step_id="step-1",
-                    machine_type="cutting",
-                    operation="cut_body",
-                    required_inputs=["material", "cut_size"],
-                    outputs=["cut_body"]
-                ),
-                WorkflowStep(
-                    step_id="step-2",
-                    machine_type="cutting",
-                    operation="cut_hood",
-                    required_inputs=["material"],
-                    outputs=["cut_hood"]
-                ),
-                WorkflowStep(
-                    step_id="step-3",
-                    machine_type="sewing",
-                    operation="sew_body",
-                    required_inputs=["cut_body", "stitch_type", "thread_color"],
-                    outputs=["sewn_body"]
-                ),
-                WorkflowStep(
-                    step_id="step-4",
-                    machine_type="sewing",
-                    operation="attach_hood",
-                    required_inputs=["sewn_body", "cut_hood", "stitch_type", "thread_color"],
-                    outputs=["hoodie_assembled"]
-                ),
-                WorkflowStep(
-                    step_id="step-5",
-                    machine_type="ironing",
-                    operation="iron_hoodie",
-                    required_inputs=["hoodie_assembled", "iron_temperature_setpoint", "steam_level"],
-                    outputs=["ironed_hoodie"]
-                ),
-                WorkflowStep(
-                    step_id="step-6",
-                    machine_type="printing",
-                    operation="print_design",
-                    required_inputs=["ironed_hoodie", "ink_type"],
-                    optional_inputs=["design_name"],
-                    outputs=["finished_hoodie"]
-                )
-            ],
-            metadata={"estimated_time_minutes": 35, "complexity": "complex"}
-        )
-
-    def _create_simple_workflow(self) -> WorkflowDefinition:
-        """Simple workflow - cutting and printing only"""
-        return WorkflowDefinition(
-            workflow_id="workflow-simple-patch",
-            workflow_name="Simple Patch Production",
-            description="Quick production: cutting and printing only",
-            product_type="patch",
-            steps=[
-                WorkflowStep(
-                    step_id="step-1",
-                    machine_type="cutting",
-                    operation="cut_patch",
-                    required_inputs=["material", "cut_size"],
-                    outputs=["cut_patch"]
-                ),
-                WorkflowStep(
-                    step_id="step-2",
-                    machine_type="printing",
-                    operation="print_patch",
-                    required_inputs=["cut_patch", "ink_type"],
-                    outputs=["finished_patch"]
-                )
-            ],
-            metadata={"estimated_time_minutes": 10, "complexity": "simple"}
-        )
-
-    def _create_parallel_workflow(self) -> WorkflowDefinition:
-        """Workflow with parallel processing steps"""
-        return WorkflowDefinition(
-            workflow_id="workflow-tshirt-parallel",
-            workflow_name="T-Shirt with Parallel Processing",
-            description="T-shirt with front and back processed in parallel",
-            product_type="tshirt-parallel",
-            steps=[
-                # Cut front and back
-                WorkflowStep(
-                    step_id="step-1a",
-                    machine_type="cutting",
-                    operation="cut_front",
-                    required_inputs=["material", "cut_size"],
-                    outputs=["cut_front"],
-                    parallel_group=1
-                ),
-                WorkflowStep(
-                    step_id="step-1b",
-                    machine_type="cutting",
-                    operation="cut_back",
-                    required_inputs=["material", "cut_size"],
-                    outputs=["cut_back"],
-                    parallel_group=1
-                ),
-                # Print front and back in parallel
-                WorkflowStep(
-                    step_id="step-2a",
-                    machine_type="printing",
-                    operation="print_front",
-                    required_inputs=["cut_front", "ink_type"],
-                    outputs=["printed_front"],
-                    parallel_group=2
-                ),
-                WorkflowStep(
-                    step_id="step-2b",
-                    machine_type="printing",
-                    operation="print_back",
-                    required_inputs=["cut_back", "ink_type"],
-                    outputs=["printed_back"],
-                    parallel_group=2
-                ),
-                # Sew together (sequential)
-                WorkflowStep(
-                    step_id="step-3",
-                    machine_type="sewing",
-                    operation="sew_together",
-                    required_inputs=["printed_front", "printed_back", "stitch_type", "thread_color"],
-                    outputs=["assembled_tshirt"]
-                ),
-                # Final ironing
-                WorkflowStep(
-                    step_id="step-4",
-                    machine_type="ironing",
-                    operation="final_iron",
-                    required_inputs=["assembled_tshirt", "iron_temperature_setpoint", "steam_level"],
-                    outputs=["finished_tshirt"]
-                )
-            ],
-            metadata={"estimated_time_minutes": 25, "complexity": "parallel", "supports_parallelization": True}
-        )
 
     def register(self, workflow: WorkflowDefinition):
         """Register a workflow definition"""

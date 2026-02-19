@@ -443,24 +443,9 @@ def main():
 
     logger.info("Starting Production Orchestrator V2 (Workflow-based)")
 
-    # Initialize workflow registry without defaults (we'll load from files)
-    workflow_registry = WorkflowRegistry(load_defaults=False)
-    
-    # Load workflows from files
+    # Initialize workflow registry and load from workflows directory
     workflows_dir = "/app/workflows"
-    if os.path.exists(workflows_dir):
-        logger.info(f"Loading workflows from {workflows_dir}...")
-        for filename in os.listdir(workflows_dir):
-            if filename.endswith('.json'):
-                workflow_file = os.path.join(workflows_dir, filename)
-                try:
-                    workflow_registry.load_from_file(workflow_file)
-                    logger.info(f"  ✓ Loaded workflow from {filename}")
-                except Exception as e:
-                    logger.error(f"  ✗ Failed to load {filename}: {e}")
-    else:
-        logger.warning(f"Workflows directory not found: {workflows_dir}, loading defaults")
-        workflow_registry = WorkflowRegistry(load_defaults=True)
+    workflow_registry = WorkflowRegistry(workflows_dir=workflows_dir, load_defaults=True)
     
     logger.info(f"Loaded {len(workflow_registry.list_all())} workflows:")
     for workflow in workflow_registry.list_all():

@@ -171,6 +171,7 @@ class WorkflowOrchestrator:
             logger.error(f"[Order {order.order_id}] Error: {e}")
             order.step_results.append({
                 "step_id": "error",
+                "operation": "error",
                 "status": "failed",
                 "error": str(e),
                 "timestamp": time.time()
@@ -285,6 +286,43 @@ def register_machine(machine_type: str, machine_id: str):
         if machine_id not in machine_registry[machine_type]:
             machine_registry[machine_type].append(machine_id)
             logger.info(f"Registered machine: {machine_type}/{machine_id}")
+
+
+def load_machines_from_config(factory_config_path: str):
+    """Load machines from factory configuration file"""
+    global machine_registry
+    try:
+        logger.info(f"Attempting to load machines from: {factory_config_path}")
+        logger.info(f"File exists: {os.path.exists(factory_config_path)}")
+        
+        with open(factory_config_path, 'r') as f:
+            config = json.load(f)
+        
+        machines = config.get('machines', [])
+        logger.info(f"Found {len(machines)} machines in factory config")
+        
+        for machine in machines:
+            if machine.get('enabled', True):
+                machine_type = machine.get('machine_type')
+                machine_id = machine.get('machine_id')
+                if machine_type and machine_id:
+                    register_machine(machine_type, machine_id)
+                else:
+                    logger.warning(f"Skipping machine with incomplete data: {machine}")
+            else:
+                logger.info(f"Skipping disabled machine: {machine.get('machine_id')}")
+        
+        logger.info(f"✓ Machine registry initialized with {len(machine_registry)} types: {dict(machine_registry)}")
+        
+        if not machine_registry:
+            logger.error("WARNING: Machine registry is empty! No machines available for production.")
+            
+    except FileNotFoundError:
+        logger.error(f"Factory config file not found at: {factory_config_path}")
+    except json.JSONDecodeError as e:
+        logger.error(f"Invalid JSON in factory config: {e}")
+    except Exception as e:
+        logger.error(f"Error loading machines from config: {e}", exc_info=True)
 
 
 def handle_machine_registration(topic: str, payload: str):
@@ -405,8 +443,25 @@ def main():
 
     logger.info("Starting Production Orchestrator V2 (Workflow-based)")
 
-    # Initialize workflow registry
-    workflow_registry = WorkflowRegistry()
+    # Initialize workflow registry without defaults (we'll load from files)
+    workflow_registry = WorkflowRegistry(load_defaults=False)
+    
+    # Load workflows from files
+    workflows_dir = "/app/workflows"
+    if os.path.exists(workflows_dir):
+        logger.info(f"Loading workflows from {workflows_dir}...")
+        for filename in os.listdir(workflows_dir):
+            if filename.endswith('.json'):
+                workflow_file = os.path.join(workflows_dir, filename)
+                try:
+                    workflow_registry.load_from_file(workflow_file)
+                    logger.info(f"  ✓ Loaded workflow from {filename}")
+                except Exception as e:
+                    logger.error(f"  ✗ Failed to load {filename}: {e}")
+    else:
+        logger.warning(f"Workflows directory not found: {workflows_dir}, loading defaults")
+        workflow_registry = WorkflowRegistry(load_defaults=True)
+    
     logger.info(f"Loaded {len(workflow_registry.list_all())} workflows:")
     for workflow in workflow_registry.list_all():
         logger.info(f"  - {workflow.workflow_name} ({workflow.product_type}) - {len(workflow.steps)} steps")
@@ -428,7 +483,25 @@ def main():
     orchestrator = WorkflowOrchestrator(mqtt_client, workflow_registry)
     orchestrator_instance = orchestrator
 
-    # Machines are expected to self-register via MQTT using the registration topic.
+    # Load machines from factory configuration
+    factory_config_path = "/app/factory-config.json"
+    if os.path.exists(factory_config_path):
+        load_machines_from_config(factory_config_path)
+    else:
+        # Try alternative path
+        alt_config_path = "/app/config/factory-config.json"
+        if os.path.exists(alt_config_path):
+            load_machines_from_config(alt_config_path)
+        else:
+            logger.warning(f"Factory config not found at {factory_config_path} or {alt_config_path}")
+            logger.warning("Will rely on machine registration via MQTT")
+    
+    # Log current machine registry state
+    logger.info(f"Current machine registry state: {dict(machine_registry)}")
+    if not machine_registry:
+        logger.error("⚠️  CRITICAL: No machines loaded! Production will fail until machines register.")
+
+    # Machines can self-register via MQTT using the registration topic as a fallback.
 
     # Subscribe to topics
     request_topic = f"factory/{FACTORY_SITE_ID}/production/request"

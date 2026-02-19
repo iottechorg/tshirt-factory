@@ -1,12 +1,24 @@
 import os
 from util import resolve_address
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 # MQTT Configs
 MQTT_BROKER = os.getenv("MQTT_BROKER", "broker.emqx.io")  # Use env vars for flexibility
 MQTT_RESOLVED_URL = resolve_address(MQTT_BROKER)
 MQTT_PUBLIC_HOST = os.getenv("MQTT_PUBLIC_HOST", "localhost") # The host the browser should use
 MQTT_PORT = int(os.getenv("MQTT_PORT", 1883))
 MQTT_WS_PORT = int(os.getenv("MQTT_WS_PORT", 8083))
+
+# Hugging Face API Configuration
+HF_TOKEN = os.getenv("HF_TOKEN", "")  # API token from .env or environment
+HF_MODEL = os.getenv("HF_MODEL", "black-forest-labs/FLUX.1-dev")  # Image generation model
+HF_PROVIDER = os.getenv("HF_PROVIDER", "together")  # Provider: 'together', 'replicate', etc.
 
 # Flask web app
 WEBAPP_PORT = os.getenv("WEBAPP_PORT", 5001)  # If the port number is statically defined

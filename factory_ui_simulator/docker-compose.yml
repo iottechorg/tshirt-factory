@@ -9,18 +9,15 @@ services:
       dockerfile: Dockerfile
       args:
         WEBAPP_PORT: ${WEBAPP_PORT}  # Pass the desired port during build
-    ports:
-      - 5002:5002
+    network_mode: host
     environment:
-        MQTT_BROKER: host.docker.internal # Connect to MQTT broker from generated factory
+        MQTT_BROKER: localhost # With host networking, MQTT broker is on localhost
         MQTT_PORT: 31883 # Use the host-mapped port from generated factory
         MQTT_WS_PORT: 9001
-        WEBAPP_PORT: 5002 # The flask app port number, if this changes, change also the port tuple above
+        WEBAPP_PORT: 5002 # The flask app port number
         MACHINE_DATA_PUBLISH_INTERVAL: 10 # in seconds
         PRODUCTION_LOOP_INTERVAL: 5 # in seconds
         MACHINE_DATA_REST_REQUEST_INTERVAL: 10 # in seconds
-    networks:
-      - aws-factory-network
   # mqttbroker:
   #   image: eclipse-mosquitto:latest
   #   ports:
@@ -33,6 +30,3 @@ services:
   #     - mosquitto_log:/mosquitto/log
   #   networks:
   #     - aws-factory-network
-networks:
-  aws-factory-network:
-    driver: bridge

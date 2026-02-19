@@ -12,6 +12,10 @@ import json
 import threading
 import os
 import paho.mqtt.client as mqtt
+import hashlib
+from pathlib import Path
+from PIL import Image, ImageDraw, ImageFont
+import textwrap
 
 # Compatibility shim for Python 3.14+: provide pkgutil.get_loader if missing
 import pkgutil
@@ -51,7 +55,8 @@ if not hasattr(pkgutil, "get_loader"):
 from config import (
     FACTORY_SITE_ID, MQTT_BROKER, MQTT_PORT, API_BASE_URL, WEBAPP_PORT,
     MQTT_RESOLVED_URL, MQTT_WS_PORT, CUSTOMER_UI_URL, CUSTOMER_UI_LABEL,
-    MACHINE_DATA_REST_REQUEST_INTERVAL, MQTT_TOPIC_PRODUCTION, MQTT_PUBLIC_HOST
+    MACHINE_DATA_REST_REQUEST_INTERVAL, MQTT_TOPIC_PRODUCTION, MQTT_PUBLIC_HOST,
+    HF_TOKEN, HF_MODEL, HF_PROVIDER
 )
 
 # Load factory config at startup if available
@@ -62,12 +67,113 @@ logging.basicConfig(level=logging.DEBUG)
 app.logger.setLevel(logging.DEBUG)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
+# Setup image cache directory
+CACHE_DIR = Path("/tmp/image_cache")
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
 
 def create_response(data, status_code=200):
     """Helper to create JSON responses."""
     response = jsonify(data)
     response.status_code = status_code
     return response
+
+
+def get_cache_key(prompt, width, height):
+    """Generate a cache key from prompt and dimensions."""
+    key_str = f"{prompt}_{width}_{height}"
+    return hashlib.sha256(key_str.encode()).hexdigest()
+
+
+def get_cached_image(prompt, width, height):
+    """Try to retrieve image from cache."""
+    cache_key = get_cache_key(prompt, width, height)
+    cache_file = CACHE_DIR / f"{cache_key}.png"
+    
+    if cache_file.exists():
+        app.logger.info(f"Cache hit for prompt: {prompt[:50]}...")
+        try:
+            with open(cache_file, 'rb') as f:
+                return f.read()
+        except Exception as e:
+            app.logger.warning(f"Failed to read cache file: {e}")
+    
+    return None
+
+
+def save_cached_image(prompt, width, height, image_data):
+    """Save image to cache."""
+    cache_key = get_cache_key(prompt, width, height)
+    cache_file = CACHE_DIR / f"{cache_key}.png"
+    
+    try:
+        with open(cache_file, 'wb') as f:
+            f.write(image_data)
+        app.logger.info(f"Cached image for prompt: {prompt[:50]}... ({len(image_data)} bytes)")
+    except Exception as e:
+        app.logger.warning(f"Failed to save cache file: {e}")
+
+
+def generate_placeholder_image(prompt, width=512, height=512):
+    """Generate a simple placeholder image when external service fails."""
+    try:
+        # Create image with gradient background
+        img = Image.new('RGB', (int(width), int(height)), color=(240, 248, 255))
+        draw = ImageDraw.Draw(img)
+        
+        # Try to use a nice font, fallback to default
+        try:
+            title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
+            text_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 18)
+        except:
+            title_font = ImageFont.load_default()
+            text_font = ImageFont.load_default()
+        
+        # Draw border
+        border_color = (100, 149, 237)  # Cornflower blue
+        draw.rectangle([10, 10, int(width)-10, int(height)-10], outline=border_color, width=3)
+        
+        # Draw title
+        title = "Product Image"
+        title_bbox = draw.textbbox((0, 0), title, font=title_font)
+        title_width = title_bbox[2] - title_bbox[0]
+        title_x = (int(width) - title_width) // 2
+        draw.text((title_x, 40), title, fill=(70, 130, 180), font=title_font)
+        
+        # Wrap and draw prompt text
+        prompt_text = f"Prompt:\n{prompt}"
+        wrapped_lines = []
+        max_chars = 50
+        for line in prompt_text.split('\n'):
+            wrapped_lines.extend(textwrap.wrap(line, width=max_chars))
+        
+        y_offset = 120
+        for line in wrapped_lines[:8]:  # Limit to 8 lines
+            draw.text((40, y_offset), line, fill=(64, 64, 64), font=text_font)
+            y_offset += 35
+        
+        # Add footer
+        footer = "[Placeholder - External service unavailable]"
+        footer_bbox = draw.textbbox((0, 0), footer, font=text_font)
+        footer_width = footer_bbox[2] - footer_bbox[0]
+        draw.text(((int(width) - footer_width) // 2, int(height) - 50), footer, fill=(169, 169, 169), font=text_font)
+        
+        # Convert to bytes
+        img_bytes = BytesIO()
+        img.save(img_bytes, format='PNG')
+        img_bytes.seek(0)
+        
+        app.logger.info(f"Generated placeholder image for prompt: {prompt[:50]}...")
+        return img_bytes.getvalue()
+    
+    except Exception as e:
+        app.logger.error(f"Failed to generate placeholder: {e}")
+        # Return a minimal 1x1 PNG as last resort
+        minimal_img = Image.new('RGB', (1, 1), color=(200, 200, 200))
+        img_bytes = BytesIO()
+        minimal_img.save(img_bytes, format='PNG')
+        img_bytes.seek(0)
+        return img_bytes.getvalue()
 
 
 @app.route("/")
@@ -370,11 +476,38 @@ def health():
     })
 
 
+@app.route("/debug/dns-test", methods=["GET"])
+def debug_dns_test():
+    """Test DNS resolution and HTTP connectivity from inside the container"""
+    import socket
+    import requests
+    diag = {}
+    
+    try:
+        hostname = "image.pollinations.ai"
+        ip = socket.gethostbyname(hostname)
+        diag["dns_resolution"] = {"status": "ok", "hostname": hostname, "resolved_ip": ip}
+    except Exception as e:
+        diag["dns_resolution"] = {"status": "error", "error": str(e)}
+    
+    try:
+        # Test HTTP connectivity with a simple request
+        response = requests.get("https://image.pollinations.ai/", timeout=10)
+        diag["http_connectivity"] = {"status": "ok", "http_code": response.status_code}
+    except Exception as e:
+        diag["http_connectivity"] = {"status": "error", "error": str(e)}
+    
+    app.logger.info(f"Diagnostics: {diag}")
+    return create_response(diag)
+
+
 @app.route("/proxy-image", methods=["GET"])
 def proxy_image():
     """
-    Proxy endpoint to fetch images from external services (e.g., pollinations.ai).
-    Bypasses client-side CORS/Referer restrictions by fetching server-to-server.
+    Generate images using Hugging Face API (FLUX.1-dev model).
+    Features:
+    - Local caching to avoid repeated API calls
+    - Placeholder fallback if generation fails
     
     Query params:
       prompt: The image generation prompt (required)
@@ -390,77 +523,155 @@ def proxy_image():
         width = request.args.get('width', '512')
         height = request.args.get('height', '512')
         
-        # Build URL to external image service (ignore cache-busting _t parameter)
-        # Use quote instead of quote_plus for cleaner URLs in some services
-        from urllib.parse import quote
-        from requests.adapters import HTTPAdapter
-        from urllib3.util.retry import Retry
-
-        encoded_prompt = quote(prompt)
-        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={width}&height={height}&nologo=true"
-        app.logger.info(f"Proxying image request for prompt: {prompt}")
-        app.logger.debug(f"Target URL: {image_url}")
-
-        # Use a session with retries to tolerate transient failures/timeouts
-        session = requests.Session()
-        # Add a User-Agent to avoid being blocked as a bot
-        session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
-        })
+        # Check cache first
+        cached_image = get_cached_image(prompt, width, height)
+        if cached_image:
+            return Response(
+                cached_image,
+                mimetype='image/png',
+                headers={
+                    'Cache-Control': 'public, max-age=86400',
+                    'X-Cache': 'HIT'
+                }
+            )
         
-        # Be slightly less aggressive with retries to avoid long hangs
-        retries = Retry(total=3, backoff_factor=1, status_forcelist=(429, 500, 502, 503, 504))
-        adapter = HTTPAdapter(max_retries=retries)
-        session.mount("https://", adapter)
-
-        # Fetch image server-to-server (no browser Referer/CORS issues)
+        # Check if HF_TOKEN is configured
+        if not HF_TOKEN:
+            app.logger.warning("HF_TOKEN not configured. Using placeholder image.")
+            placeholder_content = generate_placeholder_image(prompt, width, height)
+            save_cached_image(prompt, width, height, placeholder_content)
+            return Response(
+                placeholder_content,
+                mimetype='image/png',
+                headers={
+                    'Cache-Control': 'public, max-age=3600',
+                    'X-Cache': 'FALLBACK',
+                    'X-Fallback-Reason': 'hf_token_not_configured'
+                }
+            )
+        
+        # Generate image using Hugging Face API
         try:
-            # First try a shorter timeout
-            app.logger.debug(f"Starting GET request to {image_url}")
-            response = session.get(image_url, timeout=45)
-            app.logger.debug(f"Received response with status: {response.status_code}")
-        except requests.exceptions.RequestException as e:
-            app.logger.warning(f"Error fetching image for prompt '{prompt}': {e}")
-            # Return a lightweight SVG placeholder so the UI shows an image quickly
-            placeholder_svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <rect width="100%" height="100%" fill="#1f2937" />
-  <circle cx="256" cy="200" r="60" fill="#374151" />
-  <path d="M156 350 L256 250 L356 350 Z" fill="#374151" />
-  <text x="50%" y="70%" fill="#9ca3af" font-family="Arial,Helvetica,sans-serif" font-size="20" dominant-baseline="middle" text-anchor="middle">Generation in Progress</text>
-  <text x="50%" y="78%" fill="#6b7280" font-family="Arial,Helvetica,sans-serif" font-size="14" dominant-baseline="middle" text-anchor="middle">The service is taking longer than usual...</text>
-</svg>'''
-            return Response(placeholder_svg, mimetype='image/svg+xml', headers={
-                'Cache-Control': 'no-cache, no-store, must-revalidate',
-                'Pragma': 'no-cache',
-                'Expires': '0',
-                'X-Image-Proxy-Error': str(e)[:100]
-            })
-
-        content = response.content
+            from huggingface_hub import InferenceClient
+            
+            app.logger.info(f"Generating image with Hugging Face for prompt: {prompt[:50]}...")
+            app.logger.debug(f"Model: {HF_MODEL}, Provider: {HF_PROVIDER}")
+            
+            client = InferenceClient(
+                provider=HF_PROVIDER,
+                api_key=HF_TOKEN,
+            )
+            
+            # Generate image (PIL.Image object)
+            pil_image = client.text_to_image(
+                prompt,
+                model=HF_MODEL,
+            )
+            
+            # Convert PIL image to PNG bytes
+            img_bytes = BytesIO()
+            pil_image.save(img_bytes, format='PNG')
+            img_bytes.seek(0)
+            image_content = img_bytes.getvalue()
+            
+            # Cache the generated image
+            save_cached_image(prompt, width, height, image_content)
+            
+            app.logger.info(f"Successfully generated image ({len(image_content)} bytes)")
+            return Response(
+                image_content,
+                mimetype='image/png',
+                headers={
+                    'Cache-Control': 'public, max-age=86400',
+                    'X-Cache': 'MISS',
+                    'X-Generator': 'huggingface'
+                }
+            )
         
-        if response.status_code != 200:
-            app.logger.warning(f"Image service returned {response.status_code} for {image_url}")
-            return create_response({"error": f"Failed to fetch image: {response.status_code}"}, response.status_code)
-
-        app.logger.info(f"Successfully fetched image for '{prompt}' ({len(content)} bytes)")
-        # Return image with appropriate headers
-        mimetype = response.headers.get('content-type', 'image/png')
-        return Response(
-            content,
-            mimetype=mimetype,
-            headers={
-                'Cache-Control': 'public, max-age=3600', # Allow some caching for successful images
-                'X-Image-Original-Url': image_url
-            }
-        )
+        except ImportError:
+            app.logger.error("huggingface_hub not installed. Using placeholder image.")
+            placeholder_content = generate_placeholder_image(prompt, width, height)
+            save_cached_image(prompt, width, height, placeholder_content)
+            return Response(
+                placeholder_content,
+                mimetype='image/png',
+                headers={
+                    'Cache-Control': 'public, max-age=3600',
+                    'X-Cache': 'FALLBACK',
+                    'X-Fallback-Reason': 'huggingface_hub_not_installed'
+                }
+            )
+        
+        except Exception as hf_error:
+            app.logger.warning(f"Hugging Face image generation failed: {hf_error}")
+            # Generate placeholder as fallback
+            placeholder_content = generate_placeholder_image(prompt, width, height)
+            save_cached_image(prompt, width, height, placeholder_content)
+            return Response(
+                placeholder_content,
+                mimetype='image/png',
+                headers={
+                    'Cache-Control': 'public, max-age=3600',
+                    'X-Cache': 'FALLBACK',
+                    'X-Fallback-Reason': 'generation_error'
+                }
+            )
     
-    except requests.Timeout:
-        app.logger.error(f"Timeout fetching image for prompt: {prompt}")
-        return create_response({"error": "Image service timeout"}, 504)
     except Exception as e:
-        app.logger.exception(f"Error proxying image: {e}")
-        return create_response({"error": "Failed to proxy image"}, 500)
+        app.logger.exception(f"Error in proxy_image: {e}")
+        try:
+            placeholder_content = generate_placeholder_image(prompt, width, height)
+            return Response(
+                placeholder_content,
+                mimetype='image/png',
+                headers={'X-Cache': 'FALLBACK'}
+            )
+        except:
+            return create_response({"error": "Failed to generate image"}, 500)
+
+
+@app.route("/cache-info", methods=["GET"])
+def cache_info():
+    """Get cache statistics and HF configuration."""
+    try:
+        cache_files = list(CACHE_DIR.glob("*.png"))
+        total_size = sum(f.stat().st_size for f in cache_files)
+        
+        return create_response({
+            "cache_enabled": True,
+            "cache_dir": str(CACHE_DIR),
+            "cached_images": len(cache_files),
+            "total_size_bytes": total_size,
+            "total_size_mb": round(total_size / (1024 * 1024), 2),
+            "image_generator": {
+                "type": "huggingface",
+                "model": HF_MODEL,
+                "provider": HF_PROVIDER,
+                "token_configured": bool(HF_TOKEN)
+            },
+            "note": "Images are cached locally. If HF_TOKEN is not set, placeholder images will be generated."
+        })
+    except Exception as e:
+        app.logger.error(f"Error getting cache info: {e}")
+        return create_response({"error": str(e)}, 500)
+
+
+@app.route("/cache-clear", methods=["POST"])
+def cache_clear():
+    """Clear the image cache."""
+    try:
+        cache_files = list(CACHE_DIR.glob("*.png"))
+        for f in cache_files:
+            f.unlink()
+        
+        app.logger.info(f"Cleared {len(cache_files)} cached images")
+        return create_response({
+            "message": f"Cleared {len(cache_files)} cached images",
+            "status": "ok"
+        })
+    except Exception as e:
+        app.logger.error(f"Error clearing cache: {e}")
+        return create_response({"error": str(e)}, 500)
 
 
 if __name__ == "__main__":

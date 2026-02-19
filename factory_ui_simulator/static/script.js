@@ -477,11 +477,11 @@ $(document).ready(function() {
                 .addClass(status === 'failed' ? 'text-red-600' : (status === 'completed' || status === 'success' ? 'text-green-600' : 'text-blue-600'));
             
             if (steps) {
-                let step_info = steps.map((s) => ` ${s.operation}: ${s.status}`).join(",");
+                let step_info = steps.map((s) => ` ${s.operation || 'unknown'}: ${s.status}`).join(",");
                 existingRow.find('.steps').text(step_info);
             }
         } else {
-            let step_info = steps ? steps.map((s) => ` ${s.operation}: ${s.status}`).join(",") : "Processing...";
+            let step_info = steps ? steps.map((s) => ` ${s.operation || 'unknown'}: ${s.status}`).join(",") : "Processing...";
             let row = `
               <tr data-order-id="${orderId}">
                   <td class="product-name px-6 py-4 whitespace-nowrap text-sm text-gray-900">${productName}</td>

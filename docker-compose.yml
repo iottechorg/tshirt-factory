@@ -9,17 +9,19 @@ services:
       args:
         WEBAPP_PORT: 5001  # Default port for the web app
     ports:
-      - 5001:5001
+      - 5001:5001 # Map the web app port to the host
     environment:
-        MQTT_BROKER: tshirt-factory-001-mqtt
-        MQTT_PORT: 1883
-        MQTT_WS_PORT: 9001
-        MQTT_PUBLIC_HOST: localhost # Used by browser to connect to MQTT via WebSockets
-        WEBAPP_PORT: 5001 # The flask app port number, if this changes, change also the port tuple above
-        FACTORY_SITE_ID: tshirt-factory-001
-        MACHINE_DATA_PUBLISH_INTERVAL: 10 # in seconds
-        PRODUCTION_LOOP_INTERVAL: 5 # in seconds
-        MACHINE_DATA_REST_REQUEST_INTERVAL: 10 # in seconds
+      MQTT_BROKER: ${MQTT_BROKER:-tshirt-factory-001-mqtt}
+      MQTT_PORT: ${MQTT_PORT:-1883}
+      MQTT_WS_PORT: ${MQTT_WS_PORT:-9001}
+      MQTT_PUBLIC_HOST: ${MQTT_PUBLIC_HOST:-localhost}
+      WEBAPP_PORT: ${WEBAPP_PORT:-5001}
+      FACTORY_SITE_ID: ${FACTORY_SITE_ID:-tshirt-factory-001}
+      MACHINE_DATA_PUBLISH_INTERVAL: ${MACHINE_DATA_PUBLISH_INTERVAL:-10}
+      PRODUCTION_LOOP_INTERVAL: ${PRODUCTION_LOOP_INTERVAL:-5}
+      MACHINE_DATA_REST_REQUEST_INTERVAL: ${MACHINE_DATA_REST_REQUEST_INTERVAL:-10}
+      HF_TOKEN: ${HF_TOKEN}
+      HF_PROVIDER: ${HF_PROVIDER:-together}
     volumes:
       - ./generated-factories:/generated-factories:ro
     networks:

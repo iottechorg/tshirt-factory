@@ -74,9 +74,10 @@ class WorkflowDefinition:
 class WorkflowRegistry:
     """Registry for managing workflow definitions"""
 
-    def __init__(self):
+    def __init__(self, load_defaults: bool = True):
         self.workflows: Dict[str, WorkflowDefinition] = {}
-        self._load_default_workflows()
+        if load_defaults:
+            self._load_default_workflows()
 
     def _load_default_workflows(self):
         """Load default workflow definitions"""

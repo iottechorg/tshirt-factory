@@ -21,20 +21,64 @@ import argparse
 try:
     import yaml
 except Exception:
-    yaml = None
-    # fallback shim using json for environments without PyYAML
+    # Fallback: minimal YAML serializer for environments without PyYAML
     import types
+
+    def _yaml_serialize(obj, indent=0):
+        """Serialize a Python object to YAML string."""
+        prefix = '  ' * indent
+        if obj is None:
+            return 'null'
+        if isinstance(obj, bool):
+            return 'true' if obj else 'false'
+        if isinstance(obj, (int, float)):
+            return str(obj)
+        if isinstance(obj, str):
+            # Quote strings that could be misinterpreted
+            if (obj == '' or obj.startswith('{') or obj.startswith('[')
+                    or ':' in obj or '#' in obj or obj.startswith('- ')
+                    or obj in ('true', 'false', 'null', 'yes', 'no')
+                    or obj.startswith('"') or obj.startswith("'")):
+                return json.dumps(obj)
+            return obj
+        if isinstance(obj, list):
+            if not obj:
+                return '[]'
+            lines = []
+            for item in obj:
+                if isinstance(item, (dict, list)):
+                    sub = _yaml_serialize(item, indent + 1)
+                    lines.append(f"{prefix}- {sub.lstrip()}")
+                else:
+                    lines.append(f"{prefix}- {_yaml_serialize(item)}")
+            return '\n'.join(lines)
+        if isinstance(obj, dict):
+            if not obj:
+                return '{}'
+            lines = []
+            for key, value in obj.items():
+                k = _yaml_serialize(key)
+                if isinstance(value, dict) and value:
+                    lines.append(f"{prefix}{k}:")
+                    lines.append(_yaml_serialize(value, indent + 1))
+                elif isinstance(value, list) and value:
+                    lines.append(f"{prefix}{k}:")
+                    lines.append(_yaml_serialize(value, indent + 1))
+                else:
+                    lines.append(f"{prefix}{k}: {_yaml_serialize(value)}")
+            return '\n'.join(lines)
+        return str(obj)
+
     def _yaml_dump(obj, stream=None, **kwargs):
-        text = json.dumps(obj, indent=2)
+        text = _yaml_serialize(obj) + '\n'
         if stream:
-            try:
-                stream.write(text)
-                return None
-            except Exception:
-                pass
+            stream.write(text)
+            return None
         return text
+
     def _yaml_safe_load(s):
         return json.loads(s)
+
     yaml = types.SimpleNamespace(dump=_yaml_dump, safe_load=_yaml_safe_load)
 
 
@@ -128,6 +172,9 @@ class FactoryGenerator:
         operations = [op['name'] for op in template['operations']]
         operations_str = json.dumps(operations)
 
+        # Pre-join sensor init lines (backslashes not allowed in f-string expressions on Python < 3.12)
+        sensors_init_str = ',\n'.join(sensors_init)
+
         # Generate class code
         class_code = f'''"""
 {class_name} Machine Implementation
@@ -185,7 +232,7 @@ class {class_name}Machine(BaseMachine):
     def _initialize_sensors(self) -> Dict[str, Any]:
         """Initialize sensor values from template"""
         return {{
-  {',\n'.join(sensors_init)}
+  {sensors_init_str}
         }}
 
     def update_sensors(self):
@@ -370,7 +417,14 @@ class {class_name}Machine(BaseMachine):
                 'mosquitto_log:/mosquitto/log'
             ],
             'networks': [f"{self.config['factory_id']}-network"],
-            'restart': 'unless-stopped'
+            'restart': 'unless-stopped',
+            'healthcheck': {
+                'test': ['CMD-SHELL', "mosquitto_sub -h localhost -t '$SYS/broker/version' -C 1 >/dev/null 2>&1 || exit 1"],
+                'interval': '10s',
+                'timeout': '5s',
+                'retries': 5,
+                'start_period': '5s'
+            }
         }
 
         # Add databases
@@ -408,7 +462,7 @@ class {class_name}Machine(BaseMachine):
             'networks': [f"{self.config['factory_id']}-network"],
             'restart': 'unless-stopped',
             'healthcheck': {
-                'test': ['CMD', 'pg_isready', '-U', 'factory_user'],
+                'test': ['CMD', 'pg_isready', '-U', 'factory_user', '-d', 'factory_timeseries'],
                 'interval': '10s',
                 'timeout': '5s',
                 'retries': 5
@@ -439,13 +493,14 @@ class {class_name}Machine(BaseMachine):
                     'MACHINE_DATA_PUBLISH_INTERVAL': 5,
                     'SERVICE_NAME': machine_id
                 },
-                'depends_on': ['mqttbroker'],
+                'depends_on': {
+                    'mqttbroker': {'condition': 'service_healthy'}
+                },
                 'networks': [f"{self.config['factory_id']}-network"],
                 'restart': 'unless-stopped'
             }
 
-        # Convert to YAML string
-        return yaml.dump(compose, default_flow_style=False, sort_keys=False)
+        return compose
         
     def copy_shared_module(self, factory_dir: Path):
         """Copy shared module (base_machine, mqtt_client, etc.) to generated factory"""
@@ -766,7 +821,10 @@ if __name__ == "__main__":
             'depends_on': ['postgres'],
             'networks': [network],
             'restart': 'unless-stopped',
-            'volumes': ['./workflows:/app/workflows:ro']
+            'volumes': [
+                './workflows:/app/workflows:ro',
+                './factory-config.json:/app/factory-config.json:ro'
+            ]
         }
 
         # Add monitoring service - FIXED build context
@@ -812,7 +870,9 @@ if __name__ == "__main__":
                 'MQTT_BROKER': 'mqttbroker',
                 'MQTT_PORT': 1883
             },
-            'depends_on': ['mqttbroker'],
+            'depends_on': {
+                'mqttbroker': {'condition': 'service_healthy'}
+            },
             'networks': [network],
             'restart': 'unless-stopped',
             'volumes': [f"./factory-config.json:/app/factory-config.json:ro"]
@@ -1155,7 +1215,13 @@ GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO {db_user};
 
     def generate_mqtt_config(self, factory_dir: Path):
         """Generate MQTT broker configuration"""
-        mqtt_config = '''allow_anonymous true
+        mqtt_config = '''listener 1883 0.0.0.0
+protocol mqtt
+allow_anonymous true
+
+listener 9001 0.0.0.0
+protocol websockets
+allow_anonymous true
 
 # Persistence
 persistence true
@@ -1282,10 +1348,9 @@ log_type all
         # Generate docker-compose with proper build context
         print("\nGenerating docker-compose configuration...")
         
-        # Generate base compose configuration
-        compose_yaml = self.generate_docker_compose()
-        compose_dict = yaml.safe_load(compose_yaml)
-        
+        # Generate base compose configuration (returns dict)
+        compose_dict = self.generate_docker_compose()
+
         # Add orchestrator and monitoring services
         compose_dict = self.update_docker_compose_with_services(compose_dict)
         

@@ -419,7 +419,7 @@ class {class_name}Machine(BaseMachine):
             'networks': [f"{self.config['factory_id']}-network"],
             'restart': 'unless-stopped',
             'healthcheck': {
-                'test': ['CMD-SHELL', "mosquitto_sub -h localhost -t '$SYS/broker/version' -C 1 >/dev/null 2>&1 || exit 1"],
+                'test': ['CMD-SHELL', "mosquitto_sub -h localhost -t '$$SYS/broker/version' -C 1 >/dev/null 2>&1 || exit 1"],
                 'interval': '10s',
                 'timeout': '5s',
                 'retries': 5,
@@ -690,7 +690,14 @@ class MachineService:
                 payload = json.loads(payload)
 
             logger.info(f"Processing operation: {{payload}}")
+            
+            # Publish status before processing to show machine is busy
+            self.publish_telemetry_once()
+            
             result = self.machine.process_operation(payload)
+
+            # Publish status after processing to show updated state
+            self.publish_telemetry_once()
 
             # Publish operation result
             result_topic = f"factory/{{self.factory_site_id}}/machines/{{self.machine_id}}/operation/result"
@@ -698,6 +705,8 @@ class MachineService:
 
         except Exception as e:
             logger.error(f"Error processing operation: {{e}}")
+            # Publish status even on error
+            self.publish_telemetry_once()
 
     def publish_telemetry(self):
         """Publish telemetry data periodically"""

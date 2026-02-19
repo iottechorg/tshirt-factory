@@ -191,11 +191,20 @@ class FactoryStateManager:
                         entry.setdefault("sensor_data", {}).update(data.get("sensor_data", {}))
                         entry["runtime_state"] = data.get("runtime_state", entry.get("runtime_state"))
                 elif data_type == "status":
-                    # status payload may contain runtime_state, process_data, etc.
+                    # status payload may contain runtime_state, process_data, failure_rate, and other metrics
                     if isinstance(data, dict):
                         entry.setdefault("sensor_data", {}).update(data.get("sensor_data", {}))
                         entry.setdefault("process_data", {}).update(data.get("process_data", {}))
                         entry["runtime_state"] = data.get("runtime_state", entry.get("runtime_state"))
+                        # Update failure_rate and other status metrics
+                        if "failure_rate" in data:
+                            entry["failure_rate"] = data["failure_rate"]
+                        if "total_operations" in data:
+                            entry["total_operations"] = data["total_operations"]
+                        if "failed_operations" in data:
+                            entry["failed_operations"] = data["failed_operations"]
+                        if "uptime_seconds" in data:
+                            entry["uptime_seconds"] = data["uptime_seconds"]
                 else:
                     # other data types (operation/result etc.) store under last_<type>
                     entry[f"last_{data_type}"] = data

@@ -23,6 +23,7 @@ import { environment } from '../environments/environment';
 export class ProductCreatorComponent implements OnInit {
   productOptions: ProductOptions = {
     description: '',
+    quantity: 1,
   };
 
   apiLimitReached: boolean = false;
@@ -119,6 +120,7 @@ export class ProductCreatorComponent implements OnInit {
       product_details: {
         description: this.productOptions.description,
       },
+      quantity: this.productOptions.quantity || 1,
     };
     console.log(order);
     this.apiService.placeOrder(order).subscribe({

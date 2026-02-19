@@ -231,11 +231,34 @@ def start_production():
     
     product_name = data["product_name"]
     product_details = data.get("product_details", None)
+    workflow_id = data.get("workflow_id", None)
+    quantity = data.get("quantity", 1)
+    
+    # Validate and clamp quantity
+    try:
+        quantity = int(quantity)
+        if quantity < 1:
+            quantity = 1
+        elif quantity > 100:
+            quantity = 100
+    except (ValueError, TypeError):
+        quantity = 1
     
     try:
-        production_manager.request_production(product_name, product_details)
-        app.logger.info(f"Production request submitted: {product_name}")
-        return create_response({"message": "Production request sent to factory"}, 202)
+        production_manager.request_production(
+            product_name, 
+            product_details, 
+            workflow_id,
+            quantity
+        )
+        app.logger.info(
+            f"Production request submitted: {quantity}x {product_name} "
+            f"(workflow: {workflow_id or 'default'})"
+        )
+        return create_response({
+            "message": f"Production request sent to factory: {quantity} items",
+            "quantity": quantity
+        }, 202)
     except Exception as e:
         app.logger.exception("Failed to submit production request")
         return create_response({"message": "Internal server error"}, 500)
@@ -434,6 +457,63 @@ def get_factory_config():
     if factory_config:
         return create_response(factory_config)
     return create_response({}, 404)
+
+
+@app.route("/workflows", methods=["GET"])
+def get_workflows():
+    """Get available workflows for the factory."""
+    try:
+        # Try to get workflows from factory config first
+        global factory_config
+        if factory_config and "workflows" in factory_config:
+            workflows = factory_config["workflows"]
+            return create_response(workflows)
+        
+        # Fallback: try to load from workflows directory  
+        factory_site_id = FACTORY_SITE_ID
+        workflows_path = Path(__file__).parent.parent / "generated-factories" / factory_site_id / "workflows"
+        
+        if workflows_path.exists():
+            workflows = []
+            for workflow_file in workflows_path.glob("*.json"):
+                try:
+                    with open(workflow_file, 'r') as f:
+                        workflow_data = json.load(f)
+                        workflows.append({
+                            "workflow_id": workflow_data.get("workflow_id"),
+                            "workflow_name": workflow_data.get("workflow_name"),
+                            "description": workflow_data.get("description"),
+                            "product_type": workflow_data.get("product_type")
+                        })
+                except Exception as e:
+                    app.logger.error(f"Error loading workflow {workflow_file}: {e}")
+            
+            if workflows:
+                return create_response(workflows)
+        
+        # Last fallback: try main workflows directory
+        workflows_path = Path(__file__).parent.parent / "workflows"
+        if workflows_path.exists():
+            workflows = []
+            for workflow_file in workflows_path.glob("*.json"):
+                try:
+                    with open(workflow_file, 'r') as f:
+                        workflow_data = json.load(f)
+                        workflows.append({
+                            "workflow_id": workflow_data.get("workflow_id"),
+                            "workflow_name": workflow_data.get("workflow_name"),
+                            "description": workflow_data.get("description"),
+                            "product_type": workflow_data.get("product_type")
+                        })
+                except Exception as e:
+                    app.logger.error(f"Error loading workflow {workflow_file}: {e}")
+            
+            return create_response(workflows)
+        
+        return create_response([])
+    except Exception as e:
+        app.logger.error(f"Error fetching workflows: {e}")
+        return create_response({"error": "Failed to fetch workflows"}, 500)
 
 
 @app.route("/factory-config/generated/<string:factory_id>", methods=["GET"])

@@ -112,10 +112,48 @@ class WorkflowOrchestrator:
                 return machines[0]
             return None
 
+    def _execute_step_with_retry(self, order: ProductionOrder, step: WorkflowStep) -> Dict:
+        """Execute a step with retry logic based on step configuration"""
+        # Get retry configuration
+        retry_config = step.retry if isinstance(step.retry, dict) else {}
+        max_attempts = retry_config.get('max_attempts', 1) if retry_config.get('enabled', False) else 1
+        delay_seconds = retry_config.get('delay_seconds', 0)
+        
+        attempt = 0
+        last_result = None
+        
+        while attempt < max_attempts:
+            attempt += 1
+            
+            # Get an available machine
+            machine_id = self.get_available_machine(step.machine_type)
+            if not machine_id:
+                raise Exception(f"No available machine of type: {step.machine_type}")
+            
+            logger.info(f"[Order {order.order_id}] Executing step '{step.step_name or step.step_id}' (attempt {attempt}/{max_attempts})")
+            
+            # Execute the step
+            last_result = self._execute_step(order, step, machine_id)
+            
+            # If successful, update workflow state and return
+            if last_result["status"] == "success":
+                # Update workflow state with step outputs
+                for output in step.outputs:
+                    order.workflow_state[output] = True  # Mark as produced
+                return last_result
+            
+            # If failed and we have retries left, wait before retrying
+            if attempt < max_attempts:
+                logger.warning(f"[Order {order.order_id}] Step failed, retrying after {delay_seconds}s...")
+                time.sleep(delay_seconds)
+        
+        # If we exhausted all retries, return the last failed result
+        return last_result
+
     def process_order(self, order: ProductionOrder):
         """Process a production order through its workflow"""
         logger.info(f"Starting order {order.order_id} using workflow '{order.workflow.workflow_name}'")
-        order.status = "in_progress"
+        order.status = "in_progress"    
 
         # Publish initial status
         self._publish_status(order, "started")
@@ -126,40 +164,42 @@ class WorkflowOrchestrator:
                 order.current_step_index = step_index
 
                 logger.info(f"[Order {order.order_id}] Step {step_index + 1}/{len(order.workflow.steps)}: "
-                           f"{step.operation} on {step.machine_type}")
+                           f"{step.step_name or step.operation} on {step.machine_type}")
 
                 # Check if this step can run (inputs available)
-                is_valid, errors = WorkflowValidator.validate_inputs(step, {
-                    **order.product_details,
-                    **order.workflow_state
-                })
+                is_first_step = (step_index == 0)
+                is_valid, errors = WorkflowValidator.validate_inputs(
+                    step, 
+                    {**order.product_details, **order.workflow_state},
+                    is_first_step=is_first_step
+                )
 
                 if not is_valid:
                     raise Exception(f"Step validation failed: {errors}")
 
-                # Get an available machine
-                machine_id = self.get_available_machine(step.machine_type)
-                if not machine_id:
-                    raise Exception(f"No available machine of type: {step.machine_type}")
-
-                # Execute the step
-                step_result = self._execute_step(order, step, machine_id)
+                # Execute step with retry logic
+                step_result = self._execute_step_with_retry(order, step)
 
                 # Store step result
                 order.step_results.append(step_result)
 
-                # Update workflow state with step outputs
-                for output in step.outputs:
-                    order.workflow_state[output] = True  # Mark as produced
-
                 # Publish step result
                 self._publish_step_result(order, step, step_result)
 
-                # Check if step failed
+                # Check if step failed after all retries
                 if step_result["status"] == "failed":
-                    order.status = "failed"
-                    logger.warning(f"[Order {order.order_id}] Failed at step: {step.operation}")
-                    break
+                    # Check for quality conditions
+                    should_fail = True
+                    for condition in step.conditions:
+                        if condition.get('type') == 'quality' and condition.get('on_failure') == 'reject':
+                            logger.error(f"[Order {order.order_id}] Quality condition failed, rejecting order")
+                            should_fail = True
+                            break
+                    
+                    if should_fail:
+                        order.status = "failed"
+                        logger.warning(f"[Order {order.order_id}] Failed at step: {step.operation}")
+                        break
 
             # If all steps succeeded
             if order.status != "failed":
@@ -186,11 +226,15 @@ class WorkflowOrchestrator:
     def _execute_step(self, order: ProductionOrder, step: WorkflowStep, machine_id: str) -> Dict:
         """Execute a single workflow step"""
         try:
-            # Extract process data for this step
+            # Extract process data for this step from product details and workflow state
             process_data = WorkflowValidator.extract_process_data(step, {
                 **order.product_details,
                 **order.workflow_state
             })
+
+            # Add step-specific parameters to process data
+            if step.parameters:
+                process_data.update(step.parameters)
 
             # Add operation name
             process_data["operation"] = step.operation
@@ -204,9 +248,15 @@ class WorkflowOrchestrator:
                 "process_data": process_data,
                 "order_id": order.order_id,
                 "step_id": step.step_id,
+                "step_name": step.step_name,
+                "timeout_seconds": step.timeout_seconds,
+                "retry": step.retry,
                 "response_topic": response_topic
             }
 
+            logger.info(f"[Order {order.order_id}] Executing step '{step.step_name or step.step_id}' "
+                       f"on machine {machine_id} with params: {step.parameters}")
+            
             self.mqtt_client.publish_json(command_topic, command)
 
             # Simulate processing time (in real system, wait for machine response)
@@ -222,6 +272,12 @@ class WorkflowOrchestrator:
             failure_rate = 1.0 - success_rate
 
             if random_value < failure_rate:
+                # Check if step has retry configuration
+                should_retry = False
+                retry_config = step.retry
+                if isinstance(retry_config, dict) and retry_config.get('enabled'):
+                    should_retry = True
+                
                 return {
                     "step_id": step.step_id,
                     "operation": step.operation,
@@ -229,12 +285,14 @@ class WorkflowOrchestrator:
                     "machine_id": machine_id,
                     "status": "failed",
                     "process_data": process_data,
+                    "should_retry": should_retry,
                     "error": f"Machine operation failed for {step.operation}",
                     "timestamp": time.time()
                 }
             else:
                 return {
                     "step_id": step.step_id,
+                    "step_name": step.step_name,
                     "operation": step.operation,
                     "machine_type": step.machine_type,
                     "machine_id": machine_id,
@@ -358,15 +416,23 @@ def handle_production_request(topic: str, payload: str):
         workflow = None
         if workflow_id:
             workflow = workflow_registry.get(workflow_id)
+            if not workflow:
+                logger.warning(f"Workflow ID '{workflow_id}' not found")
         elif product_type:
             workflow = workflow_registry.get_by_product_type(product_type)
-        else:
-            # Default to standard t-shirt workflow
-            workflow = workflow_registry.get("workflow-tshirt-standard")
-
+            if not workflow:
+                logger.warning(f"No workflow found for product type: {product_type}")
+        
+        # Fallback: try to find any workflow
         if not workflow:
-            logger.error(f"Workflow not found: {workflow_id or product_type}")
-            return
+            available_workflows = workflow_registry.list_all()
+            if available_workflows:
+                workflow = available_workflows[0]
+                logger.info(f"Using first available workflow: {workflow.workflow_id}")
+            else:
+                available_ids = [w.workflow_id for w in workflow_registry.list_all()]
+                logger.error(f"No workflows available. Requested: {workflow_id or product_type}. Available: {available_ids}")
+                return
 
         # Create and queue order
         order = ProductionOrder(product_name, workflow, product_details)
@@ -377,22 +443,45 @@ def handle_production_request(topic: str, payload: str):
     except json.JSONDecodeError as e:
         logger.error(f"Invalid JSON in production request: {e}")
     except Exception as e:
-        logger.error(f"Error handling production request: {e}")
+        logger.error(f"Error handling production request: {e}", exc_info=True)
 
 
 def handle_config_update(topic: str, payload: str):
-    """Handle site-wide configuration updates (e.g. success rate)"""
-    global orchestrator_instance
+    """Handle site-wide configuration updates (e.g. workflows, success rate)"""
+    global orchestrator_instance, workflow_registry
     try:
         if isinstance(payload, str):
             config_data = json.loads(payload)
         else:
             config_data = payload
 
-        logger.info(f"Received config update: {config_data}")
+        logger.info(f"Received config update with {len(config_data)} root keys")
+        
+        # Load workflows from factory config if present
+        workflows = config_data.get('workflows', [])
+        if workflows:
+            logger.info(f"Loading {len(workflows)} workflows from factory config")
+            for workflow_data in workflows:
+                try:
+                    workflow = WorkflowDefinition.from_dict(workflow_data)
+                    workflow_registry.register(workflow)
+                    logger.info(f"✓ Loaded workflow: {workflow.workflow_name} ({workflow.workflow_id})")
+                except Exception as e:
+                    logger.error(f"Failed to load workflow {workflow_data.get('workflow_id', 'unknown')}: {e}")
+        
+        # Load machines from factory config if present
+        machines = config_data.get('machines', [])
+        if machines:
+            logger.info(f"Processing {len(machines)} machines from factory config")
+            for machine in machines:
+                if machine.get('enabled', True):
+                    machine_type = machine.get('machine_type')
+                    machine_id = machine.get('machine_id')
+                    if machine_type and machine_id:
+                        register_machine(machine_type, machine_id)
         
         # Look for production configuration
-        production_cfg = config_data.get("production", {})
+        production_cfg = config_data.get("production_config", {})
         if "success_rate" in production_cfg:
             new_rate = float(production_cfg["success_rate"])
             logger.info(f"Updating production success rate to: {new_rate}")
@@ -400,7 +489,7 @@ def handle_config_update(topic: str, payload: str):
                 orchestrator_instance.production_success_rate = new_rate
         
     except Exception as e:
-        logger.error(f"Error handling config update: {e}")
+        logger.error(f"Error handling config update: {e}", exc_info=True)
 
 
 def process_production_queue(orchestrator: WorkflowOrchestrator):

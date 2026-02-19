@@ -7,6 +7,74 @@ let currentMachines = [];
 let currentSensors = {};
 let currentTestCases = [];
 let randomProductionIntervalId = null;
+let productionHistory = []; // Store production history
+
+// Load production history from localStorage
+function loadProductionHistory() {
+    try {
+        const stored = localStorage.getItem('productionHistory');
+        if (stored) {
+            productionHistory = JSON.parse(stored);
+            console.log(`Loaded ${productionHistory.length} production records from localStorage`);
+            renderProductionHistory();
+        }
+    } catch (e) {
+        console.error('Error loading production history:', e);
+        productionHistory = [];
+    }
+}
+
+// Save production history to localStorage (keep last 20)
+function saveProductionHistory() {
+    try {
+        // Keep only last 20 items
+        if (productionHistory.length > 20) {
+            productionHistory = productionHistory.slice(0, 20);
+        }
+        localStorage.setItem('productionHistory', JSON.stringify(productionHistory));
+    } catch (e) {
+        console.error('Error saving production history:', e);
+    }
+}
+
+// Render production history from memory
+function renderProductionHistory() {
+    if (productionHistory.length === 0) return;
+    
+    // Create table if it doesn't exist
+    if (!$('#production-table').length) {
+        $('#production-results').append(
+            `<div class="overflow-x-auto">
+                <table id="production-table" class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Product Name</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Production ID</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Steps</th>
+                        </tr>
+                    </thead>
+                    <tbody id="production-table-body" class="bg-white divide-y divide-gray-200"></tbody>
+                </table>
+            </div>`
+        );
+    }
+    
+    const tableBody = $('#production-table-body');
+    tableBody.empty();
+    
+    // Render all history items
+    productionHistory.forEach((item) => {
+        const row = `
+            <tr data-order-id="${item.orderId}">
+                <td class="product-name px-6 py-4 whitespace-nowrap text-sm text-gray-900">${item.productName}</td>
+                <td class="order-id px-6 py-4 whitespace-nowrap text-sm font-mono text-xs text-gray-500">${item.orderId}</td>
+                <td class="status px-6 py-4 whitespace-nowrap text-sm font-medium ${item.statusClass}">${item.status}</td>
+                <td class="steps px-6 py-4 text-sm text-gray-500">${item.stepInfo}</td>
+            </tr>`;
+        tableBody.append(row);
+    });
+}
 function fetchMachines() {
     $.get(`${API_BASE_URL}/machines`, function(data) {
         let machineSelect = $('#machineSelect');
@@ -92,12 +160,16 @@ function updateMachineSensor(machineId, sensorName, sensorValue) {
     });
 }
 
-function startProduction(productName, productDetails) {
+function startProduction(productName, productDetails, workflowId) {
+    let payload = { product_name: productName, product_details: productDetails };
+    if (workflowId) {
+        payload.workflow_id = workflowId;
+    }
     $.ajax({
         url: `${API_BASE_URL}/production`,
         type: 'POST',
         contentType: 'application/json',
-        data: JSON.stringify({ product_name: productName, product_details: productDetails }),
+        data: JSON.stringify(payload),
         success: function(data) {
             console.log("Production started:", data);
            $('#production-status').html('<p class="text-success">Production request received.</p>');
@@ -154,6 +226,27 @@ function fetchTestCases() {
         console.log("Loaded test cases:", currentTestCases.length);
     }).fail(function() {
         console.error("Failed to fetch test cases from server");
+    });
+}
+
+function fetchWorkflows() {
+    $.get(`${API_BASE_URL}/workflows`, function(data) {
+        if (!data || data.length === 0) return;
+        
+        let workflowSelect = $('#workflowSelect');
+        workflowSelect.empty();
+        workflowSelect.append(`<option value="">Auto (Default)</option>`);
+        
+        data.forEach((workflow) => {
+            let label = workflow.workflow_name;
+            if (workflow.description) {
+                label += ` - ${workflow.description}`;
+            }
+            workflowSelect.append(`<option value="${workflow.workflow_id}">${label}</option>`);
+        });
+        console.log("Loaded workflows:", data.length);
+    }).fail(function() {
+        console.log("Failed to fetch workflows from server");
     });
 }
 
@@ -276,8 +369,12 @@ function randomChoice(array) {
 
 $(document).ready(function() {
 
+    // Load production history from localStorage on page load
+    loadProductionHistory();
+
     fetchMachines();
     fetchTestCases();
+    fetchWorkflows();
     setInterval(fetchMachines, MACHINE_DATA_REST_REQUEST_INTERVAL * 1000)
 
      $('#updateFailureRateBtn').click(function() {
@@ -324,12 +421,13 @@ $(document).ready(function() {
     });
     $('#startProductionBtn').click(function() {
         let productName = $('#productName').val();
-        let productDetailsStr = $('#productDetails').val();
+        let workflowId = $('#workflowSelect').val();
         let productDetails = null;
         try{
             if(productDetailsStr){
               productDetails = JSON.parse(productDetailsStr)
            }
+           startProduction(productName, productDetails, workflowId
            startProduction(productName, productDetails);
        }catch(e){
            alert("Please enter a valid JSON");
@@ -466,37 +564,67 @@ $(document).ready(function() {
            tableBody = $('#production-table-body')
         }
         
-        // Use a unique ID to update existing rows instead of always prepending
+        // Determine status class
+        const statusClass = status === 'failed' ? 'text-red-600' : (status === 'completed' || status === 'success' ? 'text-green-600' : 'text-blue-600');
+        const stepInfo = steps ? steps.map((s) => ` ${s.operation || 'unknown'}: ${s.status}`).join(",") : "Processing...";
+        
+        // Find existing entry in history
+        const historyIndex = productionHistory.findIndex(item => item.orderId === orderId);
+        
+        if (historyIndex >= 0) {
+            // Update existing entry
+            productionHistory[historyIndex].productName = productName !== "-" ? productName : productionHistory[historyIndex].productName;
+            productionHistory[historyIndex].status = status;
+            productionHistory[historyIndex].statusClass = statusClass;
+            productionHistory[historyIndex].stepInfo = stepInfo;
+        } else {
+            // Add new entry at the beginning
+            productionHistory.unshift({
+                orderId: orderId,
+                productName: productName,
+                status: status,
+                statusClass: statusClass,
+                stepInfo: stepInfo,
+                timestamp: Date.now()
+            });
+        }
+        
+        // Keep only last 20 items
+        if (productionHistory.length > 20) {
+            productionHistory = productionHistory.slice(0, 20);
+        }
+        
+        // Save to localStorage
+        saveProductionHistory();
+        
+        // Update or add row in the table
         let existingRow = $(`tr[data-order-id="${orderId}"]`);
         
         if (existingRow.length) {
-            // Update only fields that are provided
+            // Update existing row
             if (productName !== "-") existingRow.find('.product-name').text(productName);
             existingRow.find('.status').text(status)
                 .removeClass('text-red-600 text-green-600 text-blue-600')
-                .addClass(status === 'failed' ? 'text-red-600' : (status === 'completed' || status === 'success' ? 'text-green-600' : 'text-blue-600'));
-            
-            if (steps) {
-                let step_info = steps.map((s) => ` ${s.operation || 'unknown'}: ${s.status}`).join(",");
-                existingRow.find('.steps').text(step_info);
-            }
+                .addClass(statusClass);
+            existingRow.find('.steps').text(stepInfo);
         } else {
-            let step_info = steps ? steps.map((s) => ` ${s.operation || 'unknown'}: ${s.status}`).join(",") : "Processing...";
+            // Add new row
             let row = `
               <tr data-order-id="${orderId}">
                   <td class="product-name px-6 py-4 whitespace-nowrap text-sm text-gray-900">${productName}</td>
                    <td class="order-id px-6 py-4 whitespace-nowrap text-sm font-mono text-xs text-gray-500">${orderId}</td>
-                  <td class="status px-6 py-4 whitespace-nowrap text-sm font-medium ${status === 'failed' ? 'text-red-600' : (status === 'completed' || status === 'success' ? 'text-green-600' : 'text-blue-600')}">${status}</td>
-                 <td class="steps px-6 py-4 text-sm text-gray-500">${step_info}</td>
+                  <td class="status px-6 py-4 whitespace-nowrap text-sm font-medium ${statusClass}">${status}</td>
+                 <td class="steps px-6 py-4 text-sm text-gray-500">${stepInfo}</td>
                </tr>`;
             tableBody.prepend(row);
         }
 
-         const maxRows = 10;
-         const rows = tableBody.find('tr');
-           if (rows.length > maxRows) {
-                rows.slice(maxRows).remove();
-            }
+        // Limit visible rows to 20
+        const maxRows = 20;
+        const rows = tableBody.find('tr');
+        if (rows.length > maxRows) {
+            rows.slice(maxRows).remove();
+        }
      }
 });
 
@@ -571,6 +699,11 @@ function clearProductionResults() {
             console.log("Production automation cleared:", data);
             productionAutomationRunning = false;
             $('#production-table-body').empty();
+            
+            // Clear production history from memory and localStorage
+            productionHistory = [];
+            localStorage.removeItem('productionHistory');
+            
             $('#startRandomProductionBtn').prop('disabled', false).removeClass('opacity-50 cursor-not-allowed');
             $('#stopRandomProductionBtn').prop('disabled', true).addClass('opacity-50 cursor-not-allowed').addClass('bg-gray-400');
             showTestStatus("✓ Production results cleared", "success");

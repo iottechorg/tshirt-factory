@@ -18,19 +18,29 @@ class WorkflowStep:
     step_id: str
     machine_type: str
     operation: str  # e.g., "cut", "sew", "iron", "print"
+    step_name: Optional[str] = None  # Human-readable step name
     required_inputs: List[str] = field(default_factory=list)
     optional_inputs: List[str] = field(default_factory=list)
     outputs: List[str] = field(default_factory=list)
+    parameters: Dict[str, Any] = field(default_factory=dict)  # Step-specific parameters
     parallel_group: Optional[int] = None  # Steps in same group can run in parallel
     timeout_seconds: int = 60
-    retry_count: int = 0
+    retry: Dict[str, Any] = field(default_factory=dict)  # Retry configuration
+    conditions: List[Dict[str, Any]] = field(default_factory=list)  # Execution conditions
 
     def to_dict(self) -> Dict:
         return asdict(self)
 
     @staticmethod
     def from_dict(data: Dict) -> 'WorkflowStep':
-        return WorkflowStep(**data)
+        # Extract only the known fields to avoid __init__ errors
+        allowed_fields = {
+            'step_id', 'machine_type', 'operation', 'step_name',
+            'required_inputs', 'optional_inputs', 'outputs', 'parameters',
+            'parallel_group', 'timeout_seconds', 'retry', 'conditions'
+        }
+        filtered_data = {k: v for k, v in data.items() if k in allowed_fields}
+        return WorkflowStep(**filtered_data)
 
 
 @dataclass
@@ -195,11 +205,23 @@ class WorkflowValidator:
         return len(errors) == 0, errors
 
     @staticmethod
-    def validate_inputs(step: WorkflowStep, available_data: Dict[str, Any]) -> tuple[bool, List[str]]:
-        """Validate that all required inputs are available"""
+    def validate_inputs(step: WorkflowStep, available_data: Dict[str, Any], is_first_step: bool = False) -> tuple[bool, List[str]]:
+        """Validate that all required inputs are available
+        
+        Args:
+            step: The workflow step to validate
+            available_data: Dict containing product_details and workflow_state outputs
+            is_first_step: If True, assumes initial materials are available from inventory
+        """
         errors = []
 
         for required_input in step.required_inputs:
+            # For first step, assume material inputs (like fabric_roll, premium_fabric_roll) are from inventory
+            if is_first_step:
+                # First step materials are always available from factory inventory
+                continue
+            
+            # For subsequent steps, inputs must come from previous step outputs or product details
             if required_input not in available_data:
                 errors.append(f"Missing required input: {required_input}")
 

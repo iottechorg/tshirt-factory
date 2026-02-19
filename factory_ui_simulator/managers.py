@@ -153,15 +153,45 @@ class CommandManager:
             self.publisher.loop_stop()
             logger.info("CommandManager stopped")
     
-    def request_production(self, product_name: str, product_details: dict = None):
-        """Send production request to factory."""
+    def request_production(self, product_name: str, product_details: dict = None, workflow_id: str = None, quantity: int = 1):
+        """Send production request(s) to factory.
+        
+        For scalability, publishes individual production requests for each item.
+        This allows the factory orchestrator to queue and process them independently.
+        
+        Args:
+            product_name: Name of the product to produce
+            product_details: Additional product details
+            workflow_id: Optional workflow ID
+            quantity: Number of items to produce (default: 1)
+        """
         try:
-            payload = {
-                "product_name": product_name,
-                "product_details": product_details or {}
-            }
-            self.publisher.publish(MQTT_TOPIC_PRODUCTION_REQUEST, json.dumps(payload))
-            logger.info(f"Published production request: {product_name}")
+            # Validate and clamp quantity
+            quantity = max(1, min(100, int(quantity)))
+            
+            # Publish individual production requests for scalability
+            # Each request can be tracked and processed independently by the factory
+            for i in range(quantity):
+                payload = {
+                    "product_name": product_name,
+                    "product_details": product_details or {}
+                }
+                if workflow_id:
+                    payload["workflow_id"] = workflow_id
+                
+                # Add batch metadata for tracking
+                if quantity > 1:
+                    payload["batch_info"] = {
+                        "item_number": i + 1,
+                        "total_items": quantity
+                    }
+                
+                self.publisher.publish(MQTT_TOPIC_PRODUCTION_REQUEST, json.dumps(payload))
+            
+            logger.info(
+                f"Published {quantity} production request(s): {product_name} "
+                f"(workflow: {workflow_id or 'default'})"
+            )
         except Exception as e:
             logger.error(f"Error publishing production request: {e}")
     
@@ -287,9 +317,16 @@ class ProductionManager:
         self.state_mgr = state_mgr
         self._production_history = []
     
-    def request_production(self, product_name: str, product_details: dict = None):
-        """Send production request to factory."""
-        self.command_mgr.request_production(product_name, product_details)
+    def request_production(self, product_name: str, product_details: dict = None, workflow_id: str = None, quantity: int = 1):
+        """Send production request(s) to factory.
+        
+        Args:
+            product_name: Name of the product to produce
+            product_details: Additional product details
+            workflow_id: Optional workflow ID
+            quantity: Number of items to produce (default: 1)
+        """
+        self.command_mgr.request_production(product_name, product_details, workflow_id, quantity)
     
     def get_production_status(self):
         """Get current production status from factory state."""
@@ -368,8 +405,9 @@ class TestManager:
                 elif action in ('production_request', 'production'):
                     product_name = step.get('product_name') or step.get('product_type') or step.get('product')
                     product_details = step.get('product_details') or step.get('details') or {}
+                    quantity = step.get('quantity', 1)  # Support quantity in automation steps
                     if product_name:
-                        self.command_mgr.request_production(product_name, product_details)
+                        self.command_mgr.request_production(product_name, product_details, None, quantity)
 
                 elif action in ('update_failure_rate', 'set_failure_rate'):
                     rate = step.get('rate') or step.get('failure_rate')
